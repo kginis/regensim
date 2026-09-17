@@ -13,7 +13,7 @@ Headless 1d thermal sim for analysis of regenerative engines, designed for Nitro
 - Structural solver
 - Comparison w/ RPA
 - Built-in nozzle design
-- Input file to improve u
+- Input file to improve UX
 - Iterative solving to enable quick iteration and sizing channels automatically, which sucks to do, especially in RPA.
 
 
