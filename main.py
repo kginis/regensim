@@ -18,7 +18,7 @@ Mass_Ratio = 2.0
 Expansion_Ratio = 5.5
 
 #Cooling Settings
-Two_Pass = True #flowing from top to bottom, to top again
+Two_Pass = False #flowing from top to bottom, to top again
 
 #Cooling Inputs
 Regen_Coolant = FluidsList.Ethanol
@@ -27,6 +27,8 @@ Coolant_Mdot = 0.35 #kg/s
 Channel_Width = 0.0015 #note this is in meters
 Channel_Height = 0.0015
 Channel_Count = 55.0
+Channel_Wall = 0.001 #1mm
+Channel_Conductivity = 135 
 Coolant_Inlet_Temp = 298.15 #kelvin
 Coolant_Inlet_Pressure_Bar = 40 
 
@@ -159,7 +161,7 @@ def coolant_specific_heat(pressure, temperature):
 
     return coolant.specific_heat
 
-def coolant_specific_heat(pressure, temperature):
+def coolant_connductivity(pressure, temperature):
     coolant = Fluid(Regen_Coolant).with_state(
         Input.pressure(pressure),     
         Input.temperature(temperature-273.15),   
@@ -176,10 +178,9 @@ def hg_bartz(radius,Cp,mu,Pr,Pc,C_star,Area_Ratio,throat_curvature_radius): #not
 
     return bartz
 
-def hl_RPE(c_cp,c_mdot,c_rho,c_mu,channel_width, channel_height ,c_conductivity, channelqty, coolant_velocity):
-    hydraulidiameter=4*(channel_width*channel_height)/(2*channel_height+2*channel_width) #maybe I should consider externally calculating this and inputting it? it's constant.
+def hl_RPE(c_cp,c_mdot,c_rho,c_mu,c_conductivity, channelqty, c_velocity):
 
-    #hl = 0.023*c_cp*(c_mdot/c_mu)*
+    hl = 0.023*c_cp*(c_mdot/(Channel_Area*channelqty))*((Hydraulic_Diameter*c_velocity*c_rho)/c_mu)**-0.2*((c_mu*c_cp)/c_conductivity)**(-2/3)
 
     return hl
 #def hl_hezel_huang(coolant):
@@ -191,6 +192,16 @@ def deltaP(f,L,V,rho):
           (2*Hydraulic_Diameter)
      )
     return deltaP
+
+def bartz_boundary_sigma(Tw, Tc, gamma, Mach, omega):
+    M_gamma = 1 + ((gamma - 1) / 2) * Mach**2
+
+    sigma = 1 / (
+        (0.5 * (Tw / Tc) * M_gamma + 0.5)**(0.8 - omega / 5)
+        * M_gamma**(omega / 5)
+    )
+
+    return sigma
 
 with open('nozzle.csv', 'r') as nozzle:
 
@@ -204,7 +215,7 @@ with open('nozzle.csv', 'r') as nozzle:
 
 #Isentropic Flow lookup table
 x_positions=[]
-nozzle_radii=[]
+chamber_radii=[]
 area_ratios=[]
 mach_number=[]
 gas_temp=[]
@@ -258,7 +269,7 @@ for radius in nozzlegeoemtry:
             x_positions.append(float(x_pos))
 
             try:
-                nozzle_radii.append(float(radius[1]))
+                chamber_radii.append(float(radius[1]))
             except ValueError:
                 continue
 
@@ -269,17 +280,27 @@ for radius in nozzlegeoemtry:
         except ValueError:
             continue
 #coolant velocity math
-#assuming constant density for this, b/c its too hard to do otherwise
-coolant_pressure=[]
+#assuming constant density for this, b/c lazy
+coolant_pressures=[]
 #friction factor
 dev=1.5
-hydraulicpermiter=2*Channel_Height+2*Channel_Height #maybe i will refractor the variable names to be less cooked
+hydraulicpermiter=2*Channel_Height+2*Channel_Width #maybe i will refractor the variable names to be less cooked
 hydraulicradius=(Channel_Width*Channel_Height)/(hydraulicpermiter)
 
-Reynolds=((4*Coolant_Mdot)/
-          (coolant_kin_viscocity(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)
-           *hydraulicpermiter
-           *coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp))) #note to look into derivation of this and general reynold's number information
+Reynolds = (
+    4 * (Coolant_Mdot / Channel_Count)
+    / (
+        coolant_kin_viscocity(
+            Coolant_Inlet_Pressure_PA,
+            Coolant_Inlet_Temp,
+        )
+        * hydraulicpermiter
+        * coolant_rho(
+            Coolant_Inlet_Pressure_PA,
+            Coolant_Inlet_Temp,
+        )
+    )
+)
 
 f = 0.02
 dev = float("inf")
@@ -298,18 +319,18 @@ while dev >= 1e-6:
 
 print("Friction factor:", f)
 
-coolant_velocity=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*Channel_Height*Channel_Width*Channel_Count)  #m/s
+coolant_velocity=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*Channel_Area*Channel_Count)  #m/s
 first_pass_dist=0
 second_pass_dist=0
 j=0
-print(coolant_velocity)
+print("Coolant Velocity:", coolant_velocity)
 
 if Two_Pass:
     #print(inletpos)
     for i in range(len(area_ratios)):
         first_pass_dist=first_pass_dist+abs(x_positions[i]-x_positions[j])
         #print(first_pass_dist)
-        coolant_pressure.append(
+        coolant_pressures.append(
             Coolant_Inlet_Pressure_PA
             - deltaP(f,first_pass_dist,coolant_velocity,coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp))
         )
@@ -318,7 +339,7 @@ if Two_Pass:
 for i in range(len(area_ratios) - 1, -1, -1):
     second_pass_dist=second_pass_dist+abs(x_positions[i]-x_positions[j])
     #print(second_pass_dist+first_pass_dist)
-    coolant_pressure.append(
+    coolant_pressures.append(
                 Coolant_Inlet_Pressure_PA
                 - deltaP(f,first_pass_dist+second_pass_dist,coolant_velocity,coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp))
             )
@@ -326,25 +347,109 @@ for i in range(len(area_ratios) - 1, -1, -1):
 
 hl=[]
 hg=[]
+Twglist=[]
 
-exit(000)
-for i in range(len(area_ratios)):
-            print(hg_bartz(throat_radius, 
-                           gas_Cp, 
-                           gas_viscocity,
-                           gas_prandtl,
-                           Chamber_Pressure_Pa,
-                           Cstar_meters_sec,
-                           area_ratios[i],
-                           throat_r_D*chamber_diameter))
-            
-            #print(hl_RPE(coolant_specific_heat(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp),
-                         #Coolant_Mdot,
-                         #coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp),
-                         #coolant_abs_viscocity(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp),
-                         #Channel_Width,
-                         #Channel_Height,
-                         #coolant_conductivity(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp),
-                         #Channel_Count
-                         #)
-                         #)
+coolant_temp = Coolant_Inlet_Temp
+
+for i in range(len(area_ratios) - 1, 0, -1):
+    dx = abs(x_positions[i] - x_positions[i - 1])
+    dr = chamber_radii[i] - chamber_radii[i - 1]
+    ds = math.sqrt(dx**2 + dr**2)   
+    
+    gas_area = (
+        math.pi
+        * (chamber_radii[i] + chamber_radii[i - 1])
+        * ds
+    )
+
+    coolant_area = (
+        hydraulicpermiter
+        * Channel_Count
+        * ds
+    )
+
+    wall_area = gas_area  # thin-wall approximation
+
+    Twg_guess = 0.5 * (
+        adiabatic_wall_temp[i] + coolant_temp
+    )
+
+    tolerance = 0.01       # K
+    relaxation = 0.5
+    max_iterations = 150
+
+    for iteration in range(max_iterations):
+        hg_local = (
+            hg_bartz(
+                throat_radius,
+                gas_Cp,
+                gas_viscocity,
+                gas_prandtl,
+                Chamber_Pressure_Pa,
+                Cstar_meters_sec,
+                area_ratios[i],
+                throat_r_D * (2*throat_radius)
+            )
+            * bartz_boundary_sigma(
+                Twg_guess,
+                chamber_temp,
+                gamma,
+                mach_number[i],
+                0.6,
+            )
+        )
+
+        hl_local = hl_RPE(
+            coolant_specific_heat(
+                coolant_pressures[i], coolant_temp
+            ),
+            Coolant_Mdot,
+            coolant_rho(
+                coolant_pressures[i], coolant_temp
+            ),
+            coolant_abs_viscocity(
+                coolant_pressures[i], coolant_temp
+            ),
+            coolant_conductivity(
+                coolant_pressures[i], coolant_temp
+            ),
+            Channel_Count,
+            coolant_velocity,
+        )
+
+        R_g = 1.0 / (hg_local * gas_area)
+        R_w = Channel_Wall / (
+            Channel_Conductivity * wall_area
+        )
+        R_l = 1.0 / (hl_local * coolant_area)
+
+        Q = (
+            adiabatic_wall_temp[i] - coolant_temp
+        ) / (R_g + R_w + R_l)
+
+        Twg_calculated = (
+            adiabatic_wall_temp[i] - Q * R_g
+        )
+
+        dev = abs(Twg_calculated - Twg_guess)
+
+        if dev < tolerance:
+            Twg = Twg_calculated
+            break
+
+        Twg_guess += relaxation * (
+            Twg_calculated - Twg_guess
+        )
+    else:
+        raise RuntimeError(
+            f"Wall-temperature iteration failed at index {i}"
+        )
+
+    Twl = Twg - Q * R_w
+    hg.append(hg_local)
+    hl.append(hl_local)
+    Twglist.append(Twg_calculated)
+    
+    coolant_temperature_check = Twl - Q * R_l
+for row in Twglist:
+    print(row)
