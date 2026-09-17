@@ -1,4 +1,4 @@
-# Basic Thermal Sim
+# Regen Cooled Rocket Engine Simulator
 
 Headless 1d thermal sim for analysis of regenerative engines, designed for Nitrous/IPA rocket engines.
 
