@@ -30,6 +30,9 @@ Channel_Count = 55.0
 Coolant_Inlet_Temp = 298.15 #kelvin
 Coolant_Inlet_Pressure_Bar = 40 
 
+#Cooling Values
+Hydraulic_Diameter=4*(Channel_Width*Channel_Height)/(2*Channel_Width+2*Channel_Height)
+Channel_Area=(Channel_Width*Channel_Height)
 
 #conversions
 Chamber_Pressure_Pa = Chamber_Pressure_bar*100000
@@ -174,13 +177,20 @@ def hg_bartz(radius,Cp,mu,Pr,Pc,C_star,Area_Ratio,throat_curvature_radius): #not
     return bartz
 
 def hl_RPE(c_cp,c_mdot,c_rho,c_mu,channel_width, channel_height ,c_conductivity, channelqty, coolant_velocity):
-    hydraulicarea=4*(channel_width*channel_height)/(2*channel_height+2*channel_width)
+    hydraulidiameter=4*(channel_width*channel_height)/(2*channel_height+2*channel_width) #maybe I should consider externally calculating this and inputting it? it's constant.
 
     #hl = 0.023*c_cp*(c_mdot/c_mu)*
 
     return hl
 #def hl_hezel_huang(coolant):
     #maybe later
+
+def deltaP(f,L,V,rho):
+    deltaP=(
+          (f*L*(V)**2*rho) /
+          (2*Hydraulic_Diameter)
+     )
+    return deltaP
 
 with open('nozzle.csv', 'r') as nozzle:
 
@@ -260,11 +270,12 @@ for radius in nozzlegeoemtry:
             continue
 #coolant velocity math
 #assuming constant density for this, b/c its too hard to do otherwise
-coolant_velocity=[]
+coolant_pressure=[]
 #friction factor
 dev=1.5
-hydraulicpermiter=2*Channel_Height+2*Channel_Height #maybe i will refractor the variable names to be elss cooked
+hydraulicpermiter=2*Channel_Height+2*Channel_Height #maybe i will refractor the variable names to be less cooked
 hydraulicradius=(Channel_Width*Channel_Height)/(hydraulicpermiter)
+
 Reynolds=((4*Coolant_Mdot)/
           (coolant_kin_viscocity(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)
            *hydraulicpermiter
@@ -286,14 +297,36 @@ while dev >= 1e-6:
     f = f_new
 
 print("Friction factor:", f)
-        
 
-#for i in range(len(area_ratios)):
-    
-    #coolant_velocity.append(c_velocity)
+coolant_velocity=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*Channel_Height*Channel_Width*Channel_Count)  #m/s
+first_pass_dist=0
+second_pass_dist=0
+j=0
+print(coolant_velocity)
+
+if Two_Pass:
+    #print(inletpos)
+    for i in range(len(area_ratios)):
+        first_pass_dist=first_pass_dist+abs(x_positions[i]-x_positions[j])
+        #print(first_pass_dist)
+        coolant_pressure.append(
+            Coolant_Inlet_Pressure_PA
+            - deltaP(f,first_pass_dist,coolant_velocity,coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp))
+        )
+        j=i
+
+for i in range(len(area_ratios) - 1, -1, -1):
+    second_pass_dist=second_pass_dist+abs(x_positions[i]-x_positions[j])
+    #print(second_pass_dist+first_pass_dist)
+    coolant_pressure.append(
+                Coolant_Inlet_Pressure_PA
+                - deltaP(f,first_pass_dist+second_pass_dist,coolant_velocity,coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp))
+            )
+    j=i
+
 hl=[]
 hg=[]
-# Main Convergent solver
+
 exit(000)
 for i in range(len(area_ratios)):
             print(hg_bartz(throat_radius, 
