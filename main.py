@@ -24,8 +24,8 @@ Two_Pass = False #flowing from top to bottom, to top again
 Regen_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025 #25 Ra
 Coolant_Mdot = 0.35 #kg/s
-Channel_Width = 0.0015 #note this is in meters
-Channel_Height = 0.0015
+Channel_Width = 0.001 #note this is in meters
+Channel_Height = 0.001
 Channel_Count = 55.0
 Channel_Wall = 0.001 #1mm
 Channel_Conductivity = 135 
@@ -317,13 +317,13 @@ while dev >= 1e-6:
     dev = abs(f_new - f)
     f = f_new
 
-print("Friction factor:", f)
+#print("Friction factor:", f)
 
 coolant_velocity=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*Channel_Area*Channel_Count)  #m/s
 first_pass_dist=0
 second_pass_dist=0
 j=0
-print("Coolant Velocity:", coolant_velocity)
+#print("Coolant Velocity:", coolant_velocity)
 
 if Two_Pass:
     #print(inletpos)
@@ -347,7 +347,11 @@ for i in range(len(area_ratios) - 1, -1, -1):
 
 hl=[]
 hg=[]
-Twglist=[]
+Twg_list=[]
+Twl_list=[]
+Tc_list=[]
+Q_list=[]
+q_heatflux=[] #heat flux
 
 coolant_temp = Coolant_Inlet_Temp
 
@@ -355,7 +359,7 @@ for i in range(len(area_ratios) - 1, 0, -1):
     dx = abs(x_positions[i] - x_positions[i - 1])
     dr = chamber_radii[i] - chamber_radii[i - 1]
     ds = math.sqrt(dx**2 + dr**2)   
-    
+
     gas_area = (
         math.pi
         * (chamber_radii[i] + chamber_radii[i - 1])
@@ -446,10 +450,110 @@ for i in range(len(area_ratios) - 1, 0, -1):
         )
 
     Twl = Twg - Q * R_w
+
+    coolant_temp=coolant_temp+Q/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp))
+
     hg.append(hg_local)
     hl.append(hl_local)
-    Twglist.append(Twg_calculated)
+    Twg_list.append(Twg_calculated)
+    Twl_list.append(Twl)
+    Tc_list.append(coolant_temp)
+    Q_list.append(Q)
+    q_heatflux.append(Q/gas_area)
+
     
     coolant_temperature_check = Twl - Q * R_l
-for row in Twglist:
-    print(row)
+
+savefilename = Path.cwd() / f"ThermalOutput_{timestamp}.csv"
+
+with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
+    writer = csv.writer(csvfile, quoting=csv.QUOTE_ALL)
+
+    # Input settings
+    writer.writerow(["Input", "Value", "Unit"])
+    writer.writerow(["throat_r_D", throat_r_D, "-"])
+    writer.writerow(["chamber_diameter", chamber_diameter, "m"])
+    writer.writerow(["Chamber_Pressure_bar", Chamber_Pressure_bar, "bar"])
+    writer.writerow(["Mass_Ratio", Mass_Ratio, "-"])
+    writer.writerow(["Expansion_Ratio", Expansion_Ratio, "-"])
+    writer.writerow(["Two_Pass", Two_Pass, "bool"])
+    writer.writerow(["Regen_Coolant", str(Regen_Coolant), "-"])
+    writer.writerow(["Surface_Roughness", Surface_Roughness, "m"])
+    writer.writerow(["Coolant_Mdot", Coolant_Mdot, "kg/s"])
+    writer.writerow(["Channel_Width", Channel_Width, "m"])
+    writer.writerow(["Channel_Height", Channel_Height, "m"])
+    writer.writerow(["Channel_Count", Channel_Count, "-"])
+    writer.writerow(["Channel_Wall", Channel_Wall, "m"])
+    writer.writerow([
+        "Channel_Conductivity",
+        Channel_Conductivity,
+        "W/(m·K)",
+    ])
+    writer.writerow(["Coolant_Inlet_Temp", Coolant_Inlet_Temp, "K"])
+    writer.writerow([
+        "Coolant_Inlet_Pressure_Bar",
+        Coolant_Inlet_Pressure_Bar,
+        "bar",
+    ])
+
+    # Blank rows separating inputs from results
+    writer.writerow([])
+    writer.writerow([])
+
+    # Thermal-output headings
+    writer.writerow([
+        "X Pos (m)",
+        "Radius (m)",
+        "Area Ratio",
+        "Mach Number",
+        "Gas Temp (K)",
+        "Adiabatic Wall Temp (K)",
+        "",
+        "Coolant Velocity (m/s)",
+        "Coolant Pressure (Pa)",
+        "",
+        "Coolant h (W/m^2-K)",
+        "Gas h (W/m^2-K)",
+        "Gas-Side Wall Temp (K)",
+        "Coolant-Side Wall Temp (K)",
+        "Coolant Temp (K)",
+        "",
+        "Heat Transferred (W)",
+        "Heat Flux (W/m^2)",
+    ])
+
+    for i in range(len(Twg_list)):
+        writer.writerow([
+            x_positions[i],
+            chamber_radii[i],
+            area_ratios[i],
+            mach_number[i],
+            gas_temp[i],
+            adiabatic_wall_temp[i],
+            "",
+            coolant_velocity,
+            coolant_pressures[i],
+            "",
+            hl[i],
+            hg[i],
+            Twg_list[i],
+            Twl_list[i],
+            Tc_list[i],
+            "",
+            Q_list[i],
+            q_heatflux[i],
+            ])
+
+print(f"Output CSV created at: {savefilename.resolve()}")
+
+print()
+print()
+print("Maximum Adiabatic Wall Temp:", max(adiabatic_wall_temp))
+print("Maximum Gas Temp:", max(gas_temp))
+print()
+print("Maximum Coolant Temp:", max(Tc_list))
+print()
+print("Maximum Coolant-Side Wall Temp:", max(Twl_list))
+print("Maximum Gas-Side Wall Temp:", max(Twg_list))
+print()
+print("Maximum Heat Flux:", max(q_heatflux))
