@@ -8,29 +8,38 @@ from rocketcea.cea_obj import add_new_fuel
 from rocketcea.cea_obj_w_units import CEA_Obj
 from rocketcea.units import add_user_units
 
+# =============================================================================
+# USER-EDITABLE INPUTS
+# =============================================================================
+
 #Chamber_Inputs
 throat_r_D=1.5
-chamber_diameter=0.05 #meters
+chamber_diameter=0.03 #meters
+total_mdot = 1.775
 
 #CEA Inputs
 Chamber_Pressure_bar = 20
 Mass_Ratio = 2.0
-Expansion_Ratio = 5.5
+Expansion_Ratio = 4.0
 
 #Cooling Settings
-Two_Pass = False #flowing from top to bottom, to top again
+Two_Pass = True #flowing from top to bottom, to top again
 
 #Cooling Inputs
 Regen_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025 #25 Ra
-Coolant_Mdot = 0.35 #kg/s
-Channel_Width = 0.001 #note this is in meters
-Channel_Height = 0.001
-Channel_Count = 55.0
+Coolant_Mdot = total_mdot*1/(1+Mass_Ratio) #kg/s
+Channel_Width = 0.0012 #meters
+Channel_Height = 0.0012
+Channel_Count = 40.0
 Channel_Wall = 0.001 #1mm
-Channel_Conductivity = 135 
+Channel_Conductivity = 130
 Coolant_Inlet_Temp = 298.15 #kelvin
-Coolant_Inlet_Pressure_Bar = 40 
+Coolant_Inlet_Pressure_Bar = 45
+
+# =============================================================================
+# END USER-EDITABLE INPUTS
+# =============================================================================
 
 #Cooling Values
 Hydraulic_Diameter=4*(Channel_Width*Channel_Height)/(2*Channel_Width+2*Channel_Height)
@@ -39,6 +48,9 @@ Channel_Area=(Channel_Width*Channel_Height)
 #conversions
 Chamber_Pressure_Pa = Chamber_Pressure_bar*100000
 Coolant_Inlet_Pressure_PA = Coolant_Inlet_Pressure_Bar*100000
+
+if Two_Pass:
+    Channel_Count=Channel_Count/2
 
 #IPA properties (dont touch)
 propanol_card = """
@@ -82,6 +94,10 @@ Cstar_meters_sec = ispObj.get_Cstar(Pc=Chamber_Pressure_bar, MR=Mass_Ratio)
 temperatures = ispObj.get_Temperatures(Pc=Chamber_Pressure_bar, MR=Mass_Ratio)
 chamber_temp = temperatures[0] #in kelvin
 
+#Chamber Rho
+chamber_rho = ispObj.get_Chamber_Density(Pc=Chamber_Pressure_bar, MR = Mass_Ratio)
+
+
 #Isentropic Flow Calculations
 time = datetime.datetime.now()
 timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -106,6 +122,9 @@ with filename.open("w", newline="", encoding="utf-8") as csvfile:
         )
         temp_ratio = (
             (1+0.5*(gamma-1)*mach**2)**(-1)
+        )
+        velocity = (
+            
         )
         writer.writerow([mach, area_ratio, pressure_ratio, temp_ratio])
 
@@ -156,18 +175,18 @@ def coolant_conductivity(pressure, temperature):
 def coolant_specific_heat(pressure, temperature):
     coolant = Fluid(Regen_Coolant).with_state(
         Input.pressure(pressure),     
-        Input.temperature(temperature-273.15),   
+        Input.temperature(temperature-273.15),   #maybe this will be fixed eventually
     )
 
     return coolant.specific_heat
 
-def coolant_connductivity(pressure, temperature):
+def coolant_s_tens(pressure, temperature):
     coolant = Fluid(Regen_Coolant).with_state(
-        Input.pressure(pressure),     
-        Input.temperature(temperature-273.15),   
-    )
-
-    return coolant.conductivity
+            Input.pressure(pressure),     
+            Input.temperature(temperature-273.15),   #maybe this will be fixed eventually
+        )
+    
+    return coolant.surface_tension 
 
 def hg_bartz(radius,Cp,mu,Pr,Pc,C_star,Area_Ratio,throat_curvature_radius): #note that sigma is not yet applied
     D_star=float(radius*2)
@@ -202,6 +221,12 @@ def bartz_boundary_sigma(Tw, Tc, gamma, Mach, omega):
     )
 
     return sigma
+
+def entrainment_param():
+    delta=1.3 #Empircal value b/c film is injected paralel to hot gas
+    Xe=(
+        #delta*(Gas_Rho/9.81)**0.5*(Gas_Temp/)
+    )
 
 with open('nozzle.csv', 'r') as nozzle:
 
@@ -350,12 +375,23 @@ hg=[]
 Twg_list=[]
 Twl_list=[]
 Tc_list=[]
+Tc_2_list=[]
 Q_list=[]
 q_heatflux=[] #heat flux
+coolant_specific_heat_list=[]
+coolant_rho_list=[]
+coolant_abs_viscocity_list=[]
+coolant_kin_viscocity_list=[]
+coolant_conductivity_list=[]
 
 coolant_temp = Coolant_Inlet_Temp
 
-for i in range(len(area_ratios) - 1, 0, -1):
+if Two_Pass:
+    startingvalue=1
+else:
+    startingvalue=-1
+
+for i in range(len(area_ratios)):
     dx = abs(x_positions[i] - x_positions[i - 1])
     dr = chamber_radii[i] - chamber_radii[i - 1]
     ds = math.sqrt(dx**2 + dr**2)   
@@ -367,10 +403,12 @@ for i in range(len(area_ratios) - 1, 0, -1):
     )
 
     coolant_area = (
-        hydraulicpermiter
-        * Channel_Count
-        * ds
-    )
+            hydraulicpermiter*0.35 #arbitrary :P, to be one of the values to tune
+            * Channel_Count
+            * ds
+        )
+    if Two_Pass:
+        coolant_area=coolant_area*2
 
     wall_area = gas_area  # thin-wall approximation
 
@@ -450,19 +488,35 @@ for i in range(len(area_ratios) - 1, 0, -1):
         )
 
     Twl = Twg - Q * R_w
+    if Two_Pass:
+        coolant_temp=coolant_temp+(Q*0.5)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp))
+    else:
+        coolant_temp=coolant_temp+Q/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp))
 
-    coolant_temp=coolant_temp+Q/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp))
 
     hg.append(hg_local)
     hl.append(hl_local)
+
+    coolant_specific_heat_list.append(coolant_specific_heat(coolant_pressures[i],coolant_temp))
+    coolant_rho_list.append(coolant_rho(coolant_pressures[i],coolant_temp))
+    coolant_abs_viscocity_list.append(coolant_abs_viscocity(coolant_pressures[i],coolant_temp))
+    coolant_kin_viscocity_list.append(coolant_kin_viscocity(coolant_pressures[i],coolant_temp))
+    coolant_conductivity_list.append(coolant_conductivity(coolant_pressures[i],coolant_temp))
+
     Twg_list.append(Twg_calculated)
     Twl_list.append(Twl)
     Tc_list.append(coolant_temp)
+
     Q_list.append(Q)
     q_heatflux.append(Q/gas_area)
-
-    
     coolant_temperature_check = Twl - Q * R_l
+
+if Two_Pass:
+    i=0
+    for i in range(len(area_ratios)-1, 0, startingvalue*-1):
+        coolant_temp=coolant_temp+(Q_list[i-1]*0.5)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i+len(area_ratios)],coolant_temp))
+        Tc_2_list.append(coolant_temp)
+
 
 savefilename = Path.cwd() / f"ThermalOutput_{timestamp}.csv"
 
@@ -502,28 +556,33 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
 
     # Thermal-output headings
     writer.writerow([
-        "X Pos (m)",
-        "Radius (m)",
+        "X Position (m)",
+        "Chamber Radius (m)",
         "Area Ratio",
         "Mach Number",
-        "Gas Temp (K)",
-        "Adiabatic Wall Temp (K)",
+        "Gas Temperature (K)",
+        "Adiabatic Wall Temperature (K)",
         "",
         "Coolant Velocity (m/s)",
         "Coolant Pressure (Pa)",
+        "Coolant Specific Heat (J/kg-K)",
+        "Coolant Density (kg/m^3)",
+        "Coolant Dynamic Viscosity (Pa-s)",
+        "Coolant Kinematic Viscosity (m^2/s)",
+        "Coolant Thermal Conductivity (W/m-K)",
         "",
-        "Coolant h (W/m^2-K)",
-        "Gas h (W/m^2-K)",
-        "Gas-Side Wall Temp (K)",
-        "Coolant-Side Wall Temp (K)",
-        "Coolant Temp (K)",
+        "Coolant-Side Heat Transfer Coefficient (W/m^2-K)",
+        "Gas-Side Heat Transfer Coefficient (W/m^2-K)",
+        "Gas-Side Wall Temperature (K)",
+        "Coolant-Side Wall Temperature (K)",
+        "Coolant Temperature (K)",
         "",
         "Heat Transferred (W)",
         "Heat Flux (W/m^2)",
     ])
 
     for i in range(len(Twg_list)):
-        writer.writerow([
+            writer.writerow([
             x_positions[i],
             chamber_radii[i],
             area_ratios[i],
@@ -533,6 +592,11 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             "",
             coolant_velocity,
             coolant_pressures[i],
+            coolant_specific_heat_list[i],
+            coolant_rho_list[i],
+            coolant_abs_viscocity_list[i],
+            coolant_kin_viscocity_list[i],
+            coolant_conductivity_list[i],
             "",
             hl[i],
             hg[i],
@@ -542,7 +606,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             "",
             Q_list[i],
             q_heatflux[i],
-            ])
+        ])
 
 print(f"Output CSV created at: {savefilename.resolve()}")
 
@@ -551,7 +615,8 @@ print()
 print("Maximum Adiabatic Wall Temp:", max(adiabatic_wall_temp))
 print("Maximum Gas Temp:", max(gas_temp))
 print()
-print("Maximum Coolant Temp:", max(Tc_list))
+print("Maximum Coolant Temp:", max(max(Tc_list),max(Tc_2_list)))
+print("Coolant Velocity:", coolant_velocity)
 print()
 print("Maximum Coolant-Side Wall Temp:", max(Twl_list))
 print("Maximum Gas-Side Wall Temp:", max(Twg_list))
