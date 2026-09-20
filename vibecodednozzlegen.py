@@ -13,12 +13,12 @@ from pathlib import Path
 # USER-EDITABLE INPUTS
 # =============================================================================
 
-OUTPUT_FILENAME = "generated_nozzle.csv"
+OUTPUT_FILENAME = "nozzle.csv"
 
 # Primary sizing
-THROAT_RADIUS_M = 0.02
-CONTRACTION_RATIO = 6.0       # chamber area / throat area
-EXPANSION_RATIO = 4.0         # exit area / throat area
+THROAT_RADIUS_M = 0.015
+CONTRACTION_RATIO = 4.0       # chamber area / throat area
+EXPANSION_RATIO = 5.0         # exit area / throat area
 L_STAR_M = 0.35               # characteristic chamber length: Vc / At
 
 # Set to a number to specify chamber radius directly. Leave as None to derive
@@ -26,7 +26,7 @@ L_STAR_M = 0.35               # characteristic chamber length: Vc / At
 CHAMBER_RADIUS_M = None
 
 # Chamber and converging section
-CONVERGING_HALF_ANGLE_DEG = 40.0
+CONVERGING_HALF_ANGLE_DEG = 60.0
 CHAMBER_FILLET_RADIUS_M = 0.015
 UPSTREAM_THROAT_FILLET_RT = 1.50   # fillet radius / throat radius
 
@@ -34,8 +34,8 @@ UPSTREAM_THROAT_FILLET_RT = 1.50   # fillet radius / throat radius
 DOWNSTREAM_THROAT_FILLET_RT = 0.382
 
 # Bell length is relative to an equivalent 15-degree conical nozzle.
-BELL_LENGTH_FRACTION = 0.70
-BELL_INITIAL_ANGLE_DEG = 35
+BELL_LENGTH_FRACTION = 0.80
+BELL_INITIAL_ANGLE_DEG = 20
 BELL_EXIT_ANGLE_DEG = 9.5
 
 # Output resolution for each section

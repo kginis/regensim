@@ -14,11 +14,11 @@ from rocketcea.units import add_user_units
 
 #Chamber_Inputs
 throat_r_D=1.5
-chamber_diameter=0.03 #meters
-total_mdot = 1.775
+chamber_diameter=0.03*2 #meters
+total_mdot = 2.0
 
 #CEA Inputs
-Chamber_Pressure_bar = 20
+Chamber_Pressure_bar = 25
 Mass_Ratio = 2.0
 Expansion_Ratio = 4.0
 
@@ -31,14 +31,15 @@ Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025 #25 Ra
 Coolant_Mdot = total_mdot*1/(1+Mass_Ratio) #kg/s
-Film_Mdot = Coolant_Mdot*0.25
-Channel_Width = 0.0012 #meters
-Channel_Height = 0.0012
-Channel_Count = 40.0
+Film_Mdot = Coolant_Mdot*0.15
+Film_Inlet_Temp = 340
+Channel_Width = 0.0015 #meters
+Channel_Height = 0.001
+Channel_Count = 50.0
 Channel_Wall = 0.001 #1mm
 Channel_Conductivity = 130
 Coolant_Inlet_Temp = 298.15 #kelvin
-Coolant_Inlet_Pressure_Bar = 45
+Coolant_Inlet_Pressure_Bar = 30
 
 # =============================================================================
 # END USER-EDITABLE INPUTS
@@ -73,10 +74,13 @@ ispObj = CEA_Obj(
     temperature_units='K',
     specific_heat_units='J/kg-K',
     viscosity_units='Pa-s',
+    density_units="kg/m^3",
+    enthalpy_units="J/kg",
 )
 
+
 #Transport Parameters:  heat capacity, viscosity, thermal conductivity, Prandtl number 
-chamber_transport = ispObj.get_Chamber_Transport(Pc=Chamber_Pressure_bar, MR=Mass_Ratio)
+chamber_transport = ispObj.get_Chamber_Transport(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, frozen=1)
 throat_transport = ispObj.get_Throat_Transport(Pc=Chamber_Pressure_bar, MR=Mass_Ratio)
 exit_transport= ispObj.get_Exit_Transport(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, eps=Expansion_Ratio)
 
@@ -91,8 +95,8 @@ moluecularweight=moluecularweight_gamma[0]
 #print(gamma[1])
 
 #Gas Constant
-R=8.314
-R_gas=(8.314/moluecularweight)
+R=8314
+R_gas=(8314/moluecularweight)
 
 #Enthalpy
 gas_enthalpy = ispObj.get_Chamber_H(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, eps=Expansion_Ratio)
@@ -196,19 +200,10 @@ def coolant_s_tens(pressure, temperature):
     return coolant.surface_tension 
 
 def coolant_enthalpy_evap(pressure):
-    coolant_liquid = Fluid(Regen_Coolant).with_state(
-            Input.pressure(pressure),     
-            Input.quality(0)
-        )
-    coolant_gas = Fluid(Regen_Coolant).with_state(
-            Input.pressure(pressure),     
-            Input.quality(1)
-        )
-    enthalpy_gas=coolant_gas.enthalpy
-    enthalpy_liquid=coolant_liquid.enthalpy
+    liquid = Fluid(Film_Coolant).bubble_point_at_pressure(pressure)
+    vapour = Fluid(Film_Coolant).dew_point_at_pressure(pressure)
 
-    enthalpy_evap=enthalpy_gas-enthalpy_liquid
-    return enthalpy_evap
+    return vapour.enthalpy - liquid.enthalpy
 
 def coolant_sat_temp(pressure):
     coolant = Fluid(Film_Coolant).dew_point_at_pressure(pressure)
@@ -217,17 +212,27 @@ def coolant_sat_temp(pressure):
 def film_coolant_cp(pressure):
     filmcoolant = Fluid(Film_Coolant).with_state(
             Input.quality(0),   
-            Input.pressure(pressure-273.15)   #maybe this will be fixed eventually
+            Input.pressure(pressure)   #maybe this will be fixed eventually
         )
     
     return filmcoolant.specific_heat
 
+def film_coolant_gamma_vapor(pressure):
+    filmcoolant = Fluid(Film_Coolant).with_state(
+            Input.quality(100),   
+            Input.pressure(pressure)   #maybe this will be fixed eventually
+        )
+    cp = filmcoolant.specific_heat
+    R_co = 8.314462618 / filmcoolant.molar_mass  # molar mass: kg/mol
+    cv = cp - R_co
+    gamma_co = cp / cv
+    return gamma_co
+
 def film_enthalpy(pressure):
     filmcoolant = Fluid(Film_Coolant).with_state(
             Input.quality(0),   
-            Input.pressure(pressure-273.15)   #maybe this will be fixed eventually
+            Input.pressure(pressure)   #maybe this will be fixed eventually
         )
-    
     return filmcoolant.enthalpy
 
 def hg_bartz(radius,Cp,mu,Pr,Pc,C_star,Area_Ratio,throat_curvature_radius): #note that sigma is not yet applied
@@ -265,67 +270,168 @@ def bartz_boundary_sigma(Tw, Tc, gamma, Mach, omega):
     return sigma
 
 def film_liquid_length(hg,v_gas,mach_no): #Huzel & Huang empirical method, how on earth did they come up with this 
-    delta=0.8 #Empircal value for film which is injected paralel to combustion gas
-    T_sat=coolant_sat_temp(Chamber_Pressure_Pa)
-    T_re=chamber_temp*(1+(gas_prandtl**(1/3)*((gamma-1)/2)*mach_no*2))
+    delta=1.3 #Empircal value for film which is injected paralel to combustion gas
+    T_sat=coolant_sat_temp(Chamber_Pressure_Pa) #it's intresting to me that entry temp isnt added into this. also seem to be yielding shorter liquid length than RPA.
+    T_re=chamber_temp*(1+(gas_prandtl**(1/3)*((gamma-1)/2)*mach_no**2))
+    latent_heat = coolant_enthalpy_evap(Chamber_Pressure_Pa)
     B=( #near wall heat input parameter
         (gas_Cp*(T_re-T_sat))
-        / coolant_enthalpy_evap(Chamber_Pressure_Pa)
+        / latent_heat       
     )
+    nu_fcl=(B/(B+1))
+
     surface_tens=coolant_s_tens(Chamber_Pressure_Pa,T_sat)
     Xe=( #entrainment parameter, entrainment means when the film becomes mixed with the hot gas (and becomes mostly inneffective)
-        delta*((chamber_rho/9.81)**0.5)*(v_gas)*((chamber_temp/T_sat)**0.25)/surface_tens
+        delta*((chamber_rho)**0.5)*(v_gas)*((chamber_temp/T_sat)**0.25)/surface_tens
     )
     Xr = Xe*surface_tens
     alfa_f_c = (1+3*Xr**-0.8)*(7/(20*10**4)*Xe+1)
-    area_f_c = (0.7/(20*10**4)*Xe+0.1)
+    A_f_c_in = ((1.3/(200000)*Xe)+0.1)
+    A_f_C = A_f_c_in / 0.0254
+
     St=(
         hg
         / (chamber_rho*v_gas*gas_Cp)
-        ) #stanton number? note to self: understand this better
+        ) #stanton number? note to self: understand this
     V = (
-        ((math.pi*chamber_diameter*(chamber_rho*v_gas))
-        / 144) 
+        ((math.pi*chamber_diameter*(chamber_rho*v_gas))) 
         * St*B*alfa_f_c
     )
     Film_Liquid_Length = (
-        (1/area_f_c)*
-        math.log(1+((area_f_c*Film_Mdot)/V))
+        (1/A_f_C)*
+        math.log(1+((A_f_C*Film_Mdot)/V))
     )
-    return Film_Liquid_Length, T_sat,B
+    # Capture existing model values for reporting; do not recalculate them later.
+    film_summary.update({
+        "Liquid film length": (Film_Liquid_Length, "m"),
+        "Liquid film end X": (x_positions[0] + Film_Liquid_Length, "m"),
+        "Film saturation temperature": (T_sat, "K"),
+        "Film heat-input parameter B": (B, "-"),
+        "Film latent heat": (latent_heat, "J/kg"),
+        "Film nu at liquid-film end": (nu_fcl, "-"),
+        "Film entrainment parameter Xe": (Xe, "correlation units"),
+        "Film roughness parameter Xr": (Xr, "correlation units"),
+        "Film heat-transfer multiplier alpha": (alfa_f_c, "-"),
+        "Film entrainment coefficient A": (A_f_C, "1/m"),
+        "Film Stanton number": (St, "-"),
+        "Film recovery temperature used": (T_re, "K"),
+        "Film surface tension used": (surface_tens, "N/m"),
+        "Film vaporization rate per length V": (V, "kg/(m*s)"),
+        "Film reference heat-transfer coefficient": (hg, "W/(m^2*K)"),
+    })
+    return Film_Liquid_Length, T_sat,nu_fcl
 
-def corrected_adiabatic_wall(temperature,B):
-    Tref=298.15
+def phi_m(station):
+    x = x_positions[station]
 
-    hm_i = (
-    film_enthalpy(temperature)
-    - film_enthalpy(Tref)
+    if x <= 0:
+        Lc = -x_positions[0]
+        return 1.75 + x * (3.5 - 1.75) / (-Lc)
+
+    Ar = area_ratios[station]
+    return (
+        0.277
+        + 1.4961 * math.exp(-0.1199 * Ar)
+        + 0.14612 / Ar
     )
 
-    print(hm_i)
-    Cp=film_coolant_cp(temperature)
-    print(Cp)
-    
-    Tml=((hm_i/Cp)+Tref)
-    print(Tml)
-    
-    nu= (
-        B / (1+B)
-    )
-    print(nu)
+def shape_factor(film_entrainment,nu):
+    liquid_film_entrainment_ratio= (1 / (0.6*nu)) -1
+    entrained_liquid=Film_Mdot*liquid_film_entrainment_ratio
+    entrained_i=Film_Mdot*film_entrainment
+    if (entrained_i > entrained_liquid + 0.6*Film_Mdot):
+        return 0.6 + 0.263*((entrained_i-entrained_liquid)/Film_Mdot)
+    else:
+        return 0.758
 
-    Hg_1=gas_enthalpy
-    print(Hg_1)
+def film_entrainment_ratio(station, nu):
+    phi_L = 0.004
+    core_mdot = total_mdot - Film_Mdot
 
-    Hco=Cp*(Tml-Tref)
-    Taw_corrected=(
-        ((Hg_1-(nu*(Hg_1-Hco))-(1-(gas_prandtl**(1/3))*(Hg_1-Hco)))
-        / ((nu*Cp)*(1-nu)*gas_Cp)
+    if core_mdot <= 0 or Film_Mdot <= 0 or nu <= 0:
+        raise ValueError("Film flow, core flow, and nu must be positive")
+
+    phi = phi_m(station)
+    x_bar_i = x_bar(station)
+    radius = chamber_radii[station]
+
+    liquid_ratio = 1 / (0.6 * nu) - 1
+    entrained_liquid = Film_Mdot * liquid_ratio
+
+    mass_term = entrained_liquid / core_mdot
+    distance_term = phi_L * x_bar_i / radius
+    radicand = 1 - mass_term - distance_term
+
+    if not math.isfinite(radicand) or radicand < 0:
+        raise ValueError(
+            f"Invalid entrainment calculation at station {station}: "
+            f"sqrt_argument={radicand:.6g}, "
+            f"mass_term={mass_term:.6g}, "
+            f"distance_term={distance_term:.6g}, "
+            f"phi={phi:.6g}, x_bar={x_bar_i:.6g}, "
+            f"film_length={f_liquid_len:.6g}, nu={nu:.6g}"
         )
-    )
-    print(Taw_corrected)
-    return Taw_corrected
 
+    film_station_data[station].update({
+        "phi": phi, "x_bar": x_bar_i,
+    })
+    return (
+        (core_mdot / Film_Mdot)
+        * 2 * distance_term
+        * math.sqrt(radicand)
+        + liquid_ratio
+    )
+
+def nu_i(station,nu):
+    entrainment=film_entrainment_ratio(station,nu)
+    film_station_data[station]["entrainment_ratio"] = entrainment
+    film_station_data[station]["shape_factor"] = shape_factor(entrainment, nu)
+    nu_i=(
+        1/(shape_factor(entrainment,nu)*(1+film_entrainment_ratio(station,nu)))
+    )
+    return nu_i
+
+def film_vapor_temperature(station, T_co_1):
+    gamma_co = film_coolant_gamma_vapor(chamber_pressure[1])
+    P_i = chamber_pressure[station]
+    film_station_data[station]["gamma_used"] = gamma_co
+
+    return T_co_1 * (P_i / chamber_pressure[1])**(
+        (gamma_co - 1) / gamma_co
+    )
+
+def film_Taw_effective(station,nu, T_co_1):
+    T_co_i=film_vapor_temperature(station,T_co_1)
+
+    T_ref = 298.15  # Use the reference temperature specified by the source.
+    Cp_i=film_coolant_cp(chamber_pressure[station])
+
+    hg_i= gas_Cp * (gas_temp[station] - T_ref)
+    hco_i = Cp_i * (T_co_i - T_ref)
+
+    eta = nu_i(station, nu)
+    cp_mix = eta * Cp_i + (1 - eta) * gas_Cp
+
+    Taw_eff=(
+        ((hg_i-nu_i(station,nu)*(gas_enthalpy-hco_i))-(1-gas_prandtl**(1/3))*(gas_enthalpy-hco_i))
+        / (nu_i(station, nu) * Cp_i+ (1 - nu_i(station, nu)) * gas_Cp)
+    )
+    n = nu_i(station, nu)
+    r = gas_prandtl**(1 / 3)
+
+    numerator = hco_i + (r - n) * (gas_enthalpy - hco_i)
+    denominator = n * Cp_i
+    # These are the quantities actually used by the current model.
+    # Cp_i currently comes from the saturated-liquid Cp helper.
+    film_station_data[station].update({
+        "film_temperature": T_co_i,
+        "cp_used": Cp_i,
+        "eta": eta,
+        "cp_mix": cp_mix,
+        "coolant_sensible_enthalpy": hco_i,
+        "gas_sensible_enthalpy": hg_i,
+    })
+    return(Taw_eff)
 
 with open('nozzle.csv', 'r') as nozzle:
 
@@ -343,6 +449,7 @@ chamber_radii=[]
 area_ratios=[]
 mach_number=[]
 gas_temp=[]
+chamber_pressure=[]
 adiabatic_wall_temp=[]
 gas_velocity=[]
 
@@ -383,7 +490,7 @@ for radius in nozzlegeoemtry:
             Temp_Ratio_Flow = float(closest_row[3])
         
             Gas_Temp=(chamber_temp*Temp_Ratio_Flow)
-            Pressure=(Chamber_Pressure_bar*Pres_Ratio_Flow)
+            Pressure=(Chamber_Pressure_Pa*Pres_Ratio_Flow)
             Velocity=(Mach*(gamma*R_gas*Gas_Temp)**0.5)
 
             r = gas_prandtl ** (1 / 3) #note to self to remember what R is, I remember that prandtl**1/3 is turbulent and prandtl**1/2 is laminar, but otherwise lost lol
@@ -404,10 +511,68 @@ for radius in nozzlegeoemtry:
             gas_temp.append(float(Gas_Temp))
             adiabatic_wall_temp.append(float(Adiabatic_Wall))
             gas_velocity.append(float(Velocity))
+            chamber_pressure.append(float(Pressure))
         except ValueError:
             continue
 
-film_state=[]
+def x_bar(endstation):
+    reference_station = 0
+    x_start = x_positions[reference_station] + f_liquid_len
+    x_end = x_positions[endstation]
+
+    if x_end <= x_start:
+        return 0.0
+
+    r_c = chamber_radii[reference_station]
+
+    def gas_mass_flux(j):
+        # Ideal-gas density, consistent with your constant-R flow model.
+        # chamber_pressure MUST be in Pa; gas_temp in K.
+        rho_g = chamber_pressure[j] / (R_gas * gas_temp[j])
+        return rho_g * gas_velocity[j]
+
+    reference_flux = gas_mass_flux(reference_station)
+
+    if reference_flux <= 0:
+        raise ValueError("Reference gas mass flux must be positive")
+
+    def integrand(j):
+        return (
+            (r_c / chamber_radii[j])
+            * (gas_mass_flux(j) / reference_flux)
+            * phi_m(j)
+        )
+
+    integral = 0.0
+
+    for j in range(reference_station, endstation):
+        xa = x_positions[j]
+        xb = x_positions[j + 1]
+
+        if xb <= xa:
+            raise ValueError("x_positions must increase downstream")
+
+        if xb <= x_start:
+            continue
+
+        left = max(xa, x_start)
+
+        fa = integrand(j)
+        fb = integrand(j + 1)
+
+        # Interpolate the integrand at a film end inside this segment.
+        fraction = (left - xa) / (xb - xa)
+        f_left = fa + fraction * (fb - fa)
+
+        integral += 0.5 * (f_left + fb) * (xb - left)
+
+    return integral
+
+# Station-sized storage is valid with film cooling enabled or disabled.
+uncooled_adiabatic_wall_temp = adiabatic_wall_temp.copy()
+film_state = ["None"] * len(x_positions)
+film_station_data = [{} for _ in x_positions]
+film_summary = {}
 
 if Film_Cooling:
     hg_1 = (
@@ -425,7 +590,8 @@ if Film_Cooling:
     f_len=film_liquid_length(hg_1,gas_velocity[1],mach_number[1]) 
     f_liquid_len=f_len[0]
     t_sat=f_len[1]
-    B=f_len[2]
+    nu_fcl=f_len[2]
+    #print(f_liquid_len)
 
     #print(f_liquid_len)
     for i in range(len(adiabatic_wall_temp)):
@@ -433,12 +599,16 @@ if Film_Cooling:
         dist=abs(x_1-x_positions[i])
         #print(dist)
         if dist<=f_liquid_len:
-            film_state.append("Liquid")
-            adiabatic_wall_temp[i]=corrected_adiabatic_wall(t_sat,B)
+            film_state[i] = "Liquid"
+            film_station_data[i]["film_temperature"] = t_sat
+            adiabatic_wall_temp[i]=t_sat
             #print(adiabatic_wall_temp[i])
-            exit(000)
+            #exit(000)
         else:
-            film_state.append("Gas")
+            film_state[i] = "Gas"
+            adiabatic_wall_temp[i]=film_Taw_effective(i,nu_fcl,Film_Inlet_Temp)
+    film_summary["Film liquid-station count"] = (film_state.count("Liquid"), "-")
+    film_summary["Film gas-station count"] = (film_state.count("Gas"), "-")
 
 
 
@@ -526,10 +696,10 @@ if Two_Pass:
 else:
     startingvalue=-1
 
-for i in range(len(area_ratios)):
+for i in range(1, len(area_ratios)):
     dx = abs(x_positions[i] - x_positions[i - 1])
     dr = chamber_radii[i] - chamber_radii[i - 1]
-    ds = math.sqrt(dx**2 + dr**2)   
+    ds = math.sqrt(dx**2 + dr**2)
 
     gas_area = (
         math.pi
@@ -687,6 +857,18 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
         "bar",
     ])
 
+    writer.writerow(["total_mdot", total_mdot, "kg/s"])
+    writer.writerow(["Film_Mdot (active)", Film_Mdot if Film_Cooling else 0.0, "kg/s"])
+    writer.writerow(["Film_Inlet_Temp", Film_Inlet_Temp if Film_Cooling else "", "K"])
+    writer.writerow(["Film / total mass flow", Film_Mdot / total_mdot if Film_Cooling else 0.0, "-"])
+    writer.writerow([])
+    writer.writerow(["Film summary", "Value", "Unit"])
+    writer.writerow(["Film cooling status", "Enabled" if Film_Cooling else "Disabled", "-"])
+    if Film_Cooling:
+        for label, (value, unit) in film_summary.items():
+            writer.writerow([label, value, unit])
+        writer.writerow(["Gas-film Cp basis", "Saturated-liquid Cp (current model)", "-"])
+
     # Blank rows separating inputs from results
     writer.writerow([])
     writer.writerow([])
@@ -700,6 +882,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
         "Gas Temperature (K)",
         "Gas Velocity (m/s)",
         "Adiabatic Wall Temperature (K)",
+        "Gas Pressure (Pa)",
         "",
         "Coolant Velocity (m/s)",
         "Coolant Pressure (Pa)",
@@ -718,10 +901,26 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
         "Heat Transferred (W)",
         "Heat Flux (W/m^2)",
         "",
-        "Film Coolant State"
+        "Film Coolant State",
+        "Distance from Film Injection (m)",
+        "Uncooled Adiabatic Wall Temperature (K)",
+        "Film Taw Reduction (K)",
+        "Film Coolant Temperature Used (K)",
+        "Film Coolant Cp Used (J/kg-K)",
+        "Film Mixing Fraction eta (-)",
+        "Film Mixture Cp Used (J/kg-K)",
+        "Film Coolant Sensible Enthalpy Used (J/kg)",
+        "Film Gas Sensible Enthalpy Used (J/kg)",
+        "Film Flow Multiplier phi (-)",
+        "Film Equivalent Distance x_bar (m)",
+        "Film Entrainment Ratio (-)",
+        "Film Shape Factor (-)",
+        "Film Reference Vapor Gamma Used (-)"
     ])
 
-    for i in range(len(Twg_list)):
+    for k in range(len(Twg_list)):
+            i=k+1
+            
             writer.writerow([
             x_positions[i],
             chamber_radii[i],
@@ -730,40 +929,74 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             gas_temp[i],
             gas_velocity[i],
             adiabatic_wall_temp[i],
+            chamber_pressure[i],
             "",
             coolant_velocity,
             coolant_pressures[i],
-            coolant_specific_heat_list[i],
-            coolant_rho_list[i],
-            coolant_abs_viscocity_list[i],
-            coolant_kin_viscocity_list[i],
-            coolant_conductivity_list[i],
+            coolant_specific_heat_list[k],
+            coolant_rho_list[k],
+            coolant_abs_viscocity_list[k],
+            coolant_kin_viscocity_list[k],
+            coolant_conductivity_list[k],
             "",
-            hl[i],
-            hg[i],
-            Twg_list[i],
-            Twl_list[i],
-            Tc_list[i],
+            hl[k],
+            hg[k],
+            Twg_list[k],
+            Twl_list[k],
+            Tc_list[k],
             "",
-            Q_list[i],
-            q_heatflux[i],
+            Q_list[k],
+            q_heatflux[k],
             "",
-            film_state[i]
+            film_state[i],
+            abs(x_positions[i] - x_positions[0]) if Film_Cooling else "",
+            uncooled_adiabatic_wall_temp[i],
+            uncooled_adiabatic_wall_temp[i] - adiabatic_wall_temp[i] if Film_Cooling else "",
+            film_station_data[i].get("film_temperature", ""),
+            film_station_data[i].get("cp_used", ""),
+            film_station_data[i].get("eta", ""),
+            film_station_data[i].get("cp_mix", ""),
+            film_station_data[i].get("coolant_sensible_enthalpy", ""),
+            film_station_data[i].get("gas_sensible_enthalpy", ""),
+            film_station_data[i].get("phi", ""),
+            film_station_data[i].get("x_bar", ""),
+            film_station_data[i].get("entrainment_ratio", ""),
+            film_station_data[i].get("shape_factor", ""),
+            film_station_data[i].get("gamma_used", "")
         ])
 
 print(f"Output CSV created at: {savefilename.resolve()}")
 
-print()
-print()
-print("Maximum Adiabatic Wall Temp:", max(adiabatic_wall_temp))
-print("Maximum Gas Temp:", max(gas_temp))
-print('Maximum Gas Velocity:', max(gas_velocity))
-print()
-print("Maximum Coolant Temp:", max(max(Tc_list),max(Tc_2_list)))
-print("Coolant Velocity:", coolant_velocity)
-print()
-print("Maximum Coolant-Side Wall Temp:", max(Twl_list))
-print("Maximum Gas-Side Wall Temp:", max(Twg_list))
-print()
-print("Maximum Heat Flux:", max(q_heatflux))
-print()
+
+def print_range(label, values, unit):
+    if values:
+        print(f"{label}: {min(values):.6g} to {max(values):.6g} {unit}")
+    else:
+        print(f"{label}: N/A")
+
+
+print("\nThermal results")
+print_range("Effective adiabatic wall temperature", adiabatic_wall_temp, "K")
+print_range("Uncooled adiabatic wall temperature", uncooled_adiabatic_wall_temp, "K")
+print_range("Gas temperature", gas_temp, "K")
+print_range("Gas velocity", gas_velocity, "m/s")
+print_range("Regen coolant temperature (all modeled passes)", Tc_list + Tc_2_list, "K")
+print(f"Regen coolant velocity: {coolant_velocity:.6g} m/s")
+print_range("Coolant-side wall temperature", Twl_list, "K")
+print_range("Gas-side wall temperature", Twg_list, "K")
+print_range("Heat flux", q_heatflux, "W/m^2")
+print(f"Sum of segment heat-transfer values: {sum(Q_list):.6g} W")
+
+print("\nFilm cooling:", "Enabled" if Film_Cooling else "Disabled")
+if Film_Cooling:
+    print(f"Film coolant: {Film_Coolant}")
+    print(f"Film mass flow: {Film_Mdot:.6g} kg/s")
+    print(f"Film inlet temperature: {Film_Inlet_Temp:.6g} K")
+    print(f"Film fraction of total flow: {100 * Film_Mdot / total_mdot:.6g} %")
+    for label, (value, unit) in film_summary.items():
+        print(f"{label}: {value:.6g} {unit}")
+    print_range("Film coolant temperature used", [d["film_temperature"] for d in film_station_data if "film_temperature" in d], "K")
+    print_range("Gas-film mixing fraction eta", [d["eta"] for d in film_station_data if "eta" in d], "")
+    print_range("Film Taw reduction (uncooled minus effective)", [a - b for a, b in zip(uncooled_adiabatic_wall_temp, adiabatic_wall_temp)], "K")
+    print("Gas-film Cp basis: saturated-liquid Cp (current model)")
+#to be completley transparent chatgpt rewrote the csv writer and helped debug the film cooling but otherwise nothing else :)))
