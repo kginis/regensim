@@ -11,6 +11,7 @@ from rocketcea.units import add_user_units
 # =============================================================================
 # USER-EDITABLE INPUTS
 # =============================================================================
+identifier='Lynx'
 
 #Chamber_Inputs
 throat_r_D=1.5
@@ -18,12 +19,13 @@ chamber_diameter=0.03*2 #meters
 total_mdot = 2.0
 
 #CEA Inputs
-Chamber_Pressure_bar = 25
+Chamber_Pressure_bar = 31.73 #i dont want to iteratively do CEA
 Mass_Ratio = 2.0
-Expansion_Ratio = 4.0
+Expansion_Ratio = 5.0
+Cstar_efficiency = 0.95 #80% Cstar
 
 #Cooling Settings
-Two_Pass = True #flowing from top to bottom, to top again
+Two_Pass = False #flowing from top to bottom, to top again
 Film_Cooling=True
 
 #Cooling Inputs
@@ -31,7 +33,7 @@ Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025 #25 Ra
 Coolant_Mdot = total_mdot*1/(1+Mass_Ratio) #kg/s
-Film_Mdot = Coolant_Mdot*0.15
+Film_Mdot = Coolant_Mdot*0.157
 Film_Inlet_Temp = 340
 Channel_Width = 0.0015 #meters
 Channel_Height = 0.001
@@ -102,12 +104,12 @@ R_gas=(8314/moluecularweight)
 gas_enthalpy = ispObj.get_Chamber_H(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, eps=Expansion_Ratio)
 
 #Cstar
-Cstar_meters_sec = ispObj.get_Cstar(Pc=Chamber_Pressure_bar, MR=Mass_Ratio)
+Cstar_meters_sec = Cstar_efficiency*(ispObj.get_Cstar(Pc=Chamber_Pressure_bar, MR=Mass_Ratio))
 #print(Cstar_meters_sec)
 
 #Temps: Chamber, Nozzle, Exit
 temperatures = ispObj.get_Temperatures(Pc=Chamber_Pressure_bar, MR=Mass_Ratio)
-chamber_temp = temperatures[0] #in kelvin
+chamber_temp = Cstar_efficiency*(temperatures[0]) #in kelvin
 
 #Chamber Rho
 chamber_rho = ispObj.get_Chamber_Density(Pc=Chamber_Pressure_bar, MR = Mass_Ratio)
@@ -119,7 +121,7 @@ filename = f"IsentropicFlow_{timestamp}.csv"
 
 timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-filename = Path.cwd() / f"IsentropicFlow_{timestamp}.csv"
+filename = Path.cwd() / f"IsentropicFlow_{identifier}.csv"
 #Saving it to a sheet
 with filename.open("w", newline="", encoding="utf-8") as csvfile:
     writer = csv.writer(csvfile, quoting=csv.QUOTE_ALL)
@@ -138,6 +140,7 @@ with filename.open("w", newline="", encoding="utf-8") as csvfile:
         )
 
         writer.writerow([mach, area_ratio, pressure_ratio, temp_ratio])
+
 
 print(f"Isentropic Flow CSV created at: {filename.resolve()}")
 
@@ -515,6 +518,16 @@ for radius in nozzlegeoemtry:
         except ValueError:
             continue
 
+#cstar*mdot/throatarea
+chamber_pressure_check = (Cstar_meters_sec*total_mdot)/throat_area
+
+if not math.isclose(Chamber_Pressure_Pa,chamber_pressure_check, rel_tol=0.1):
+    print('FATAL ERROR: Input Chamber pressure & Calculated Chamber Pressure mismatch')
+    print('Calculated:',chamber_pressure_check, ' PA')
+    print('Input:',Chamber_Pressure_Pa,' PA')
+    exit(12345)
+
+
 def x_bar(endstation):
     reference_station = 0
     x_start = x_positions[reference_station] + f_liquid_len
@@ -823,7 +836,7 @@ if Two_Pass:
         coolant_temp=coolant_temp+(Q_list[i-1]*0.5)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i+len(area_ratios)],coolant_temp))
         Tc_2_list.append(coolant_temp)
 
-savefilename = Path.cwd() / f"ThermalOutput_{timestamp}.csv"
+savefilename = Path.cwd() / f"ThermalOutput_{identifier}.csv"
 
 with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
     writer = csv.writer(csvfile, quoting=csv.QUOTE_ALL)
