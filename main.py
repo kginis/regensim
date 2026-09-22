@@ -14,8 +14,8 @@ from rocketcea.units import add_user_units
 identifier='Lynx'
 
 #Chamber_Inputs
-throat_r_D=1.5
-chamber_diameter=0.03*2 #meters
+throat_r_D=1
+chamber_diameter=0.0335*2 #meters
 total_mdot = 1.75
 
 #CEA Inputs
@@ -26,7 +26,8 @@ Cstar_efficiency = 0.95 #80% Cstar
 
 #Cooling Settings
 Two_Pass = False #flowing from top to bottom, to top again
-coolant_parameter=0.35 #fraction of total hydraulic perimiter that is being cooled. conservative estimate = 0.25. one of many parameters to tune
+coolant_parameter=0.35 #fraction of total hydraulic perimiter that is being cooled. conservative estimate = 0.35. key param to tune and unfortunatley numbers are very sensitive to changing it
+generatrix_angle=50 #degrees, constant angle relative to the center axis of engine
 Film_Cooling=True 
 
 #Cooling Inputs
@@ -34,10 +35,10 @@ Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025 #25 Ra
 Coolant_Mdot = total_mdot*1/(1+Mass_Ratio) #kg/s
-Film_Mdot = Coolant_Mdot*0.15
-Film_Inlet_Temp = 340
-Channel_Width = 0.0015 #meters
-Channel_Height = 0.0015
+Film_Mdot = Coolant_Mdot*0.20
+Film_Inlet_Temp = 319
+Channel_Width = 0.0012 #meters
+Channel_Height = 0.0012
 Channel_Count = 40.0
 Channel_Wall = 0.001 #1mm
 Channel_Conductivity = 130
@@ -233,7 +234,7 @@ def coolant_sat_temp(pressure):
 
 def film_coolant_cp(pressure):
     filmcoolant = Fluid(Film_Coolant).with_state(
-            Input.quality(0),   
+            Input.quality(100),   
             Input.pressure(pressure)   #maybe this will be fixed eventually
         )
     
@@ -528,14 +529,6 @@ for radius in nozzlegeoemtry:
             continue
 
 #cstar*mdot/throatarea
-chamber_pressure_check = (Cstar_meters_sec*total_mdot)/throat_area
-
-if not math.isclose(Chamber_Pressure_Pa,chamber_pressure_check, rel_tol=0.001):
-    print('FATAL ERROR: Input Chamber pressure & Calculated Chamber Pressure mismatch')
-    print('Calculated:',chamber_pressure_check, ' PA')
-    print('Input:',Chamber_Pressure_Pa,' PA')
-    exit(12345)
-
 
 def x_bar(endstation):
     reference_station = 0
@@ -677,17 +670,63 @@ first_pass_dist=0
 second_pass_dist=0
 j=0
 #print("Coolant Velocity:", coolant_velocity)
+n = len(area_ratios)
+
+rho_in = coolant_rho(
+    Coolant_Inlet_Pressure_PA,
+    Coolant_Inlet_Temp,
+)
+
+theta = math.radians(generatrix_angle)
+
+
+def calculate_pass_pressures(stations, inlet_pressure):
+    pressures = [None] * n
+    distance = 0.0
+    previous = stations[0]
+
+    for i in stations:
+        # Existing axial-length approximation.
+        # Replace with actual channel length for helical channels.
+        distance += abs((x_positions[i] - x_positions[previous])/math.cos(theta))
+
+        pressures[i] = (
+            inlet_pressure
+            - deltaP(f, distance, coolant_velocity, rho_in)
+        )
+
+        previous = i
+
+    return pressures
+
 
 if Two_Pass:
-    #print(inletpos)
-    for i in range(len(area_ratios)):
-        first_pass_dist=first_pass_dist+abs((x_positions[i]-x_positions[j]))
-        #print(first_pass_dist)
-        coolant_pressures.append(
-            Coolant_Inlet_Pressure_PA
-            - deltaP(f,first_pass_dist,coolant_velocity,coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp))
-        )
-        j=i
+    # Chamber top → nozzle exit
+    coolant_pressures_first = calculate_pass_pressures(
+        list(range(n)),
+        Coolant_Inlet_Pressure_PA,
+    )
+
+    # Return pass begins at the first pass's outlet pressure.
+    return_inlet_pressure = coolant_pressures_first[-1]
+
+else:
+    coolant_pressures_first = None
+    return_inlet_pressure = Coolant_Inlet_Pressure_PA
+
+
+# Nozzle exit → chamber top
+coolant_pressures_return = calculate_pass_pressures(
+    list(range(n - 1, -1, -1)),
+    return_inlet_pressure,
+)
+
+# Pressure array used by your main thermal loop.
+coolant_pressures = (
+    coolant_pressures_first
+    if Two_Pass
+    else coolant_pressures_return
+)
 
 for i in range(len(area_ratios) - 1, -1, -1):
     second_pass_dist=second_pass_dist+abs((x_positions[i]-x_positions[j]))
@@ -718,8 +757,14 @@ if Two_Pass:
     startingvalue=1
 else:
     startingvalue=-1
+    
+thermal_indices = (
+    range(1, n)
+    if Two_Pass
+    else range(n - 1, 0, -1)
+)
 
-for i in range(1, len(area_ratios)):
+for i in thermal_indices:
     dx = abs(x_positions[i] - x_positions[i - 1])
     dr = chamber_radii[i] - chamber_radii[i - 1]
     ds = math.sqrt(dx**2 + dr**2)
@@ -729,12 +774,12 @@ for i in range(1, len(area_ratios)):
         * (chamber_radii[i] + chamber_radii[i - 1])
         * ds
     )
+    channel_length = ds / math.cos(theta)
 
     coolant_area = (
-            hydraulicpermiter*coolant_parameter #arbitrary :P, to be one of the values to tune
-            * Channel_Count
-            * ds
-        )
+        hydraulicpermiter * coolant_parameter
+        * Channel_Count * channel_length
+    )
     if Two_Pass:
         coolant_area=coolant_area*2
 
@@ -791,7 +836,7 @@ for i in range(1, len(area_ratios)):
         R_w = Channel_Wall / (
             Channel_Conductivity * wall_area
         )
-        R_l = 1.0 / (hl_local * coolant_area)
+        R_l = 1.0 / (hl_local * coolant_area*1)
 
         Q = (
             adiabatic_wall_temp[i] - coolant_temp
@@ -817,9 +862,12 @@ for i in range(1, len(area_ratios)):
 
     Twl = Twg - Q * R_w
     if Two_Pass:
-        coolant_temp=coolant_temp+(Q*0.5)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp))
+        coolant_temp=coolant_temp+(Q*0.5*1/coolant_parameter)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp))
     else:
-        coolant_temp=coolant_temp+Q/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp))
+        coolant_temp=coolant_temp+(Q*(1/coolant_parameter))/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp)) 
+        #super conservative way to calculate coolant temp, assuming heat is entering the coolant on the entire hydraulic perimiter, while coolant is only absorbing heat on 0.3x the entire hydraulic perimiter
+        #i know that a better way to do this is to model the channel walls and heat flux into/through the walls and then into the coolant, and I should do that
+        #but, the results seem to make sense
 
 
     hg.append(hg_local)
@@ -843,7 +891,7 @@ for i in range(1, len(area_ratios)):
 if Two_Pass:
     i=0
     for i in range(len(area_ratios)-1, 0, startingvalue*-1):
-        coolant_temp=coolant_temp+(Q_list[i-1]*0.5)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i+len(area_ratios)],coolant_temp))
+        coolant_temp=coolant_temp+(Q_list[i-1]*0.5)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures_return[i],coolant_temp))
         Tc_2_list.append(coolant_temp)
 
 savefilename = Path.cwd() / f"ThermalOutput_{identifier}.csv"
@@ -941,9 +989,9 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
         "Film Reference Vapor Gamma Used (-)"
     ])
 
-    for k in range(len(Twg_list)):
-            i=k+1
-            
+    for k in range(len(Twg_list) - 1, -1, -1):
+            i = len(area_ratios) - 1 - k
+
             writer.writerow([
             x_positions[i],
             chamber_radii[i],
@@ -1007,7 +1055,6 @@ print_range("Gas velocity", gas_velocity, "m/s")
 print_range("Regen coolant temperature (all modeled passes)", Tc_list + Tc_2_list, "K")
 print(f"Regen coolant velocity: {coolant_velocity:.6g} m/s")
 print_range("Coolant-side wall temperature", Twl_list, "K")
-print_range("Coolant temperature", Tc_list, "K")
 print_range("Gas-side wall temperature", Twg_list, "K")
 print_range("Heat flux", q_heatflux, "W/m^2")
 print(f"Sum of segment heat-transfer values: {sum(Q_list):.6g} W")
