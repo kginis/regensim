@@ -13,21 +13,25 @@ from rocketcea.units import add_user_units
 # =============================================================================
 identifier='Lynx'
 
+#Performance Inputs
+P_Ambient=101300
+Cstar_efficiency = 0.90
+
 #Chamber_Inputs
 throat_r_D=1
-chamber_diameter=0.0335*2 #meters
-total_mdot = 1.75
+chamber_diameter=0.03*2 #meters
+total_mdot = 1.65
 
 #CEA Inputs
-Chamber_Pressure_bar = 25 #this is a 'guess'
+Chamber_Pressure_bar = 25 #this is the initial guess, mdot calculated fr later
 Mass_Ratio = 1.75
-Expansion_Ratio = 5.444
-Cstar_efficiency = 0.95 #80% Cstar
+Expansion_Ratio = 4.0
+
 
 #Cooling Settings
 Two_Pass = False #flowing from top to bottom, to top again
-coolant_parameter=0.35 #fraction of total hydraulic perimiter that is being cooled. conservative estimate = 0.35. key param to tune and unfortunatley numbers are very sensitive to changing it
-generatrix_angle=50 #degrees, constant angle relative to the center axis of engine
+coolant_parameter=0.33 #fraction of total hydraulic perimiter that is being cooled. conservative estimate =~ 0.35. key param to tune and unfortunatley numbers are very sensitive to changing it
+generatrix_angle=55 #degrees, constant angle relative to the center axis of engine
 Film_Cooling=True 
 
 #Cooling Inputs
@@ -35,15 +39,15 @@ Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025 #25 Ra
 Coolant_Mdot = total_mdot*1/(1+Mass_Ratio) #kg/s
-Film_Mdot = Coolant_Mdot*0.20
-Film_Inlet_Temp = 319
-Channel_Width = 0.0012 #meters
-Channel_Height = 0.0012
-Channel_Count = 40.0
+Film_Mdot = Coolant_Mdot*0.35
+Film_Inlet_Temp = 383
+Channel_Width = 0.002 #meters
+Channel_Height = 0.001
+Channel_Count = 30.0
 Channel_Wall = 0.001 #1mm
 Channel_Conductivity = 130
 Coolant_Inlet_Temp = 298.15 #kelvin
-Coolant_Inlet_Pressure_Bar = 50
+Coolant_Inlet_Pressure_Bar = 40
 
 # =============================================================================
 # END USER-EDITABLE INPUTS
@@ -894,6 +898,12 @@ if Two_Pass:
         coolant_temp=coolant_temp+(Q_list[i-1]*0.5)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures_return[i],coolant_temp))
         Tc_2_list.append(coolant_temp)
 
+Exit_Pressure=gas_temp[-1]
+Exit_Area=math.pi*chamber_radii[-1]**2
+Exit_Velocity=gas_velocity[-1]
+
+Thrust=Exit_Velocity*total_mdot+(Exit_Pressure-P_Ambient)*Exit_Area
+
 savefilename = Path.cwd() / f"ThermalOutput_{identifier}.csv"
 
 with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
@@ -904,6 +914,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
     writer.writerow(["throat_r_D", throat_r_D, "-"])
     writer.writerow(["chamber_diameter", chamber_diameter, "m"])
     writer.writerow(["Chamber_Pressure_bar", Chamber_Pressure_bar, "bar"])
+    writer.writerow(["Thrust",Thrust,"N"])
     writer.writerow(["Mass_Ratio", Mass_Ratio, "-"])
     writer.writerow(["Expansion_Ratio", Expansion_Ratio, "-"])
     writer.writerow(["Two_Pass", Two_Pass, "bool"])
@@ -1047,6 +1058,8 @@ def print_range(label, values, unit):
 
 print("\nPerformance Results")
 print("Chamber Pressure", Chamber_Pressure_bar,'bar')
+print("Thrust", Thrust,'N')
+
 print("\nThermal results")
 print_range("Effective adiabatic wall temperature", adiabatic_wall_temp, "K")
 print_range("Uncooled adiabatic wall temperature", uncooled_adiabatic_wall_temp, "K")
