@@ -16,32 +16,33 @@ identifier='Lynx'
 #Chamber_Inputs
 throat_r_D=1.5
 chamber_diameter=0.03*2 #meters
-total_mdot = 2.0
+total_mdot = 1.75
 
 #CEA Inputs
-Chamber_Pressure_bar = 31.73 #i dont want to iteratively do CEA
-Mass_Ratio = 2.0
-Expansion_Ratio = 5.0
+Chamber_Pressure_bar = 25 #this is a 'guess'
+Mass_Ratio = 1.75
+Expansion_Ratio = 5.444
 Cstar_efficiency = 0.95 #80% Cstar
 
 #Cooling Settings
 Two_Pass = False #flowing from top to bottom, to top again
-Film_Cooling=True
+coolant_parameter=0.35 #fraction of total hydraulic perimiter that is being cooled. conservative estimate = 0.25. one of many parameters to tune
+Film_Cooling=True 
 
 #Cooling Inputs
 Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025 #25 Ra
 Coolant_Mdot = total_mdot*1/(1+Mass_Ratio) #kg/s
-Film_Mdot = Coolant_Mdot*0.157
+Film_Mdot = Coolant_Mdot*0.15
 Film_Inlet_Temp = 340
 Channel_Width = 0.0015 #meters
-Channel_Height = 0.001
-Channel_Count = 50.0
+Channel_Height = 0.0015
+Channel_Count = 40.0
 Channel_Wall = 0.001 #1mm
 Channel_Conductivity = 130
 Coolant_Inlet_Temp = 298.15 #kelvin
-Coolant_Inlet_Pressure_Bar = 30
+Coolant_Inlet_Pressure_Bar = 50
 
 # =============================================================================
 # END USER-EDITABLE INPUTS
@@ -81,38 +82,64 @@ ispObj = CEA_Obj(
 )
 
 
-#Transport Parameters:  heat capacity, viscosity, thermal conductivity, Prandtl number 
-chamber_transport = ispObj.get_Chamber_Transport(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, frozen=1)
-throat_transport = ispObj.get_Throat_Transport(Pc=Chamber_Pressure_bar, MR=Mass_Ratio)
-exit_transport= ispObj.get_Exit_Transport(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, eps=Expansion_Ratio)
+def find_throat(list):
+    minimum = None
+    for row in nozzlegeoemtry:
+            value=(row[1])
+            if minimum == None or value<minimum:
+                minimum=value
+    return minimum  
 
-gas_Cp=chamber_transport[0]
-gas_viscocity=chamber_transport[1]
-gas_prandtl=chamber_transport[3]
+with open('nozzle.csv', 'r') as nozzle:
 
-#Gamma: molecular weight, gamma
-moluecularweight_gamma = ispObj.get_Chamber_MolWt_gamma(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, eps=Expansion_Ratio)
-gamma=moluecularweight_gamma[1]
-moluecularweight=moluecularweight_gamma[0]
-#print(gamma[1])
+    csv_reader = csv.reader(nozzle)
+    nozzlegeoemtry = list(csv_reader)
+    
+    throat_radius=float((find_throat(nozzlegeoemtry)))
+    throat_area=((throat_radius**2)*math.pi)
+    #print("Throat Area:") 
+    #print(Athroat)
 
-#Gas Constant
-R=8314
-R_gas=(8314/moluecularweight)
+dev = float("inf")
+while dev > 0.01:
 
-#Enthalpy
-gas_enthalpy = ispObj.get_Chamber_H(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, eps=Expansion_Ratio)
+    #Transport Parameters:  heat capacity, viscosity, thermal conductivity, Prandtl number 
+    chamber_transport = ispObj.get_Chamber_Transport(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, frozen=1)
+    throat_transport = ispObj.get_Throat_Transport(Pc=Chamber_Pressure_bar, MR=Mass_Ratio)
+    exit_transport= ispObj.get_Exit_Transport(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, eps=Expansion_Ratio)
 
-#Cstar
-Cstar_meters_sec = Cstar_efficiency*(ispObj.get_Cstar(Pc=Chamber_Pressure_bar, MR=Mass_Ratio))
-#print(Cstar_meters_sec)
+    gas_Cp=chamber_transport[0]
+    gas_viscocity=chamber_transport[1]
+    gas_prandtl=chamber_transport[3]
 
-#Temps: Chamber, Nozzle, Exit
-temperatures = ispObj.get_Temperatures(Pc=Chamber_Pressure_bar, MR=Mass_Ratio)
-chamber_temp = Cstar_efficiency*(temperatures[0]) #in kelvin
+    #Gamma: molecular weight, gamma
+    moluecularweight_gamma = ispObj.get_Chamber_MolWt_gamma(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, eps=Expansion_Ratio)
+    gamma=moluecularweight_gamma[1]
+    moluecularweight=moluecularweight_gamma[0]
+    #print(gamma[1])
 
-#Chamber Rho
-chamber_rho = ispObj.get_Chamber_Density(Pc=Chamber_Pressure_bar, MR = Mass_Ratio)
+    #Gas Constant
+    R=8314
+    R_gas=(8314/moluecularweight)
+
+    #Enthalpy
+    gas_enthalpy = ispObj.get_Chamber_H(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, eps=Expansion_Ratio)
+
+    #Cstar
+    Cstar_meters_sec = Cstar_efficiency*(ispObj.get_Cstar(Pc=Chamber_Pressure_bar, MR=Mass_Ratio))
+    #print(Cstar_meters_sec)
+
+    #Temps: Chamber, Nozzle, Exit
+    temperatures = ispObj.get_Temperatures(Pc=Chamber_Pressure_bar, MR=Mass_Ratio)
+    chamber_temp = Cstar_efficiency*(temperatures[0]) #in kelvin
+
+    #Chamber Rho
+    chamber_rho = ispObj.get_Chamber_Density(Pc=Chamber_Pressure_bar, MR = Mass_Ratio)
+
+    chamber_pressure_true_PA = (Cstar_meters_sec*total_mdot)/throat_area
+    dev=chamber_pressure_true_PA-Chamber_Pressure_Pa
+    Chamber_Pressure_Pa=chamber_pressure_true_PA
+    Chamber_Pressure_bar=Chamber_Pressure_Pa/100000
 
 #Isentropic Flow Calculations
 time = datetime.datetime.now()
@@ -145,15 +172,7 @@ with filename.open("w", newline="", encoding="utf-8") as csvfile:
 print(f"Isentropic Flow CSV created at: {filename.resolve()}")
 
 #CEAout = ispObj.get_full_cea_output(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, eps=Expansion_Ratio)
-#print(CEAout)
-
-def find_throat(list):
-    minimum = None
-    for row in nozzlegeoemtry:
-            value=(row[1])
-            if minimum == None or value<minimum:
-                minimum=value
-    return minimum    
+#print(CEAout)  
 
 def coolant_rho(pressure, temperature):
     coolant = Fluid(Regen_Coolant).with_state(
@@ -436,16 +455,6 @@ def film_Taw_effective(station,nu, T_co_1):
     })
     return(Taw_eff)
 
-with open('nozzle.csv', 'r') as nozzle:
-
-    csv_reader = csv.reader(nozzle)
-    nozzlegeoemtry = list(csv_reader)
-    
-    throat_radius=float((find_throat(nozzlegeoemtry)))
-    throat_area=((throat_radius**2)*math.pi)
-    #print("Throat Area:") 
-    #print(Athroat)
-
 #Isentropic Flow lookup table
 x_positions=[]
 chamber_radii=[]
@@ -521,7 +530,7 @@ for radius in nozzlegeoemtry:
 #cstar*mdot/throatarea
 chamber_pressure_check = (Cstar_meters_sec*total_mdot)/throat_area
 
-if not math.isclose(Chamber_Pressure_Pa,chamber_pressure_check, rel_tol=0.1):
+if not math.isclose(Chamber_Pressure_Pa,chamber_pressure_check, rel_tol=0.001):
     print('FATAL ERROR: Input Chamber pressure & Calculated Chamber Pressure mismatch')
     print('Calculated:',chamber_pressure_check, ' PA')
     print('Input:',Chamber_Pressure_Pa,' PA')
@@ -627,6 +636,7 @@ if Film_Cooling:
 
 #coolant velocity math
 #assuming constant density for this, b/c lazy
+
 coolant_pressures=[]
 dev=1.5
 hydraulicpermiter=2*Channel_Height+2*Channel_Width #maybe i will refractor the variable names to be less cooked
@@ -671,7 +681,7 @@ j=0
 if Two_Pass:
     #print(inletpos)
     for i in range(len(area_ratios)):
-        first_pass_dist=first_pass_dist+abs(x_positions[i]-x_positions[j])
+        first_pass_dist=first_pass_dist+abs((x_positions[i]-x_positions[j]))
         #print(first_pass_dist)
         coolant_pressures.append(
             Coolant_Inlet_Pressure_PA
@@ -680,7 +690,7 @@ if Two_Pass:
         j=i
 
 for i in range(len(area_ratios) - 1, -1, -1):
-    second_pass_dist=second_pass_dist+abs(x_positions[i]-x_positions[j])
+    second_pass_dist=second_pass_dist+abs((x_positions[i]-x_positions[j]))
     #print(second_pass_dist+first_pass_dist)
     coolant_pressures.append(
                 Coolant_Inlet_Pressure_PA
@@ -721,7 +731,7 @@ for i in range(1, len(area_ratios)):
     )
 
     coolant_area = (
-            hydraulicpermiter*0.35 #arbitrary :P, to be one of the values to tune
+            hydraulicpermiter*coolant_parameter #arbitrary :P, to be one of the values to tune
             * Channel_Count
             * ds
         )
@@ -987,7 +997,8 @@ def print_range(label, values, unit):
     else:
         print(f"{label}: N/A")
 
-
+print("\nPerformance Results")
+print("Chamber Pressure", Chamber_Pressure_bar,'bar')
 print("\nThermal results")
 print_range("Effective adiabatic wall temperature", adiabatic_wall_temp, "K")
 print_range("Uncooled adiabatic wall temperature", uncooled_adiabatic_wall_temp, "K")
@@ -996,6 +1007,7 @@ print_range("Gas velocity", gas_velocity, "m/s")
 print_range("Regen coolant temperature (all modeled passes)", Tc_list + Tc_2_list, "K")
 print(f"Regen coolant velocity: {coolant_velocity:.6g} m/s")
 print_range("Coolant-side wall temperature", Twl_list, "K")
+print_range("Coolant temperature", Tc_list, "K")
 print_range("Gas-side wall temperature", Twg_list, "K")
 print_range("Heat flux", q_heatflux, "W/m^2")
 print(f"Sum of segment heat-transfer values: {sum(Q_list):.6g} W")
