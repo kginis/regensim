@@ -1,5 +1,7 @@
 # Regen Cooled Rocket Engine Simulator
 
+<img width="1929" height="793" alt="image" src="https://github.com/user-attachments/assets/78e0617b-49d9-4263-8948-448d63e789b1" />
+
 Headless 1d thermal sim for analysis of regenerative engines, designed for Nitrous/IPA rocket engines.
 
 ### Features:
