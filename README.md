@@ -1,4 +1,4 @@
-# Regen Cooled Rocket Engine Simulator
+# regen cooled thermal model
 
 <img width="1929" height="793" alt="image" src="https://github.com/user-attachments/assets/78e0617b-49d9-4263-8948-448d63e789b1" />
 
