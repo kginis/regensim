@@ -20,18 +20,18 @@ Cstar_efficiency = 0.90
 #Chamber_Inputs
 throat_r_D=1
 chamber_diameter=0.03*2 #meters
-total_mdot = 1.65
+total_mdot = 1.675
 
 #CEA Inputs
 Chamber_Pressure_bar = 25 #this is the initial guess, mdot calculated fr later
-Mass_Ratio = 1.75
+Mass_Ratio = 1.720
 Expansion_Ratio = 4.0
 
 
 #Cooling Settings
 Two_Pass = False #flowing from top to bottom, to top again
-coolant_parameter=0.33 #fraction of total hydraulic perimiter that is being cooled. conservative estimate =~ 0.35. key param to tune and unfortunatley numbers are very sensitive to changing it
-generatrix_angle=55 #degrees, constant angle relative to the center axis of engine
+coolant_parameter=0.35 #fraction of total hydraulic perimiter that is being cooled. conservative estimate =~ 0.35. key param to tune and unfortunatley numbers are very sensitive to changing it
+generatrix_angle=30 #degrees, constant angle relative to the center axis of engine
 Film_Cooling=True 
 
 #Cooling Inputs
@@ -39,15 +39,15 @@ Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025 #25 Ra
 Coolant_Mdot = total_mdot*1/(1+Mass_Ratio) #kg/s
-Film_Mdot = Coolant_Mdot*0.35
+Film_Mdot = Coolant_Mdot*0.118
 Film_Inlet_Temp = 383
-Channel_Width = 0.002 #meters
-Channel_Height = 0.001
-Channel_Count = 30.0
+Channel_Width = 0.0012 #meters
+Channel_Height = 0.0012
+Channel_Count = 32.0
 Channel_Wall = 0.001 #1mm
 Channel_Conductivity = 130
 Coolant_Inlet_Temp = 298.15 #kelvin
-Coolant_Inlet_Pressure_Bar = 40
+Coolant_Inlet_Pressure_Bar = 50
 
 # =============================================================================
 # END USER-EDITABLE INPUTS
@@ -1057,8 +1057,10 @@ def print_range(label, values, unit):
         print(f"{label}: N/A")
 
 print("\nPerformance Results")
-print("Chamber Pressure", Chamber_Pressure_bar,'bar')
-print("Thrust", Thrust,'N')
+print("Chamber Pressure:", Chamber_Pressure_bar,'bar')
+print("Thrust:", Thrust,'N')
+print("Gamma:", gamma)
+print("C star:", Cstar_meters_sec)
 
 print("\nThermal results")
 print_range("Effective adiabatic wall temperature", adiabatic_wall_temp, "K")
@@ -1084,4 +1086,4 @@ if Film_Cooling:
     print_range("Gas-film mixing fraction eta", [d["eta"] for d in film_station_data if "eta" in d], "")
     print_range("Film Taw reduction (uncooled minus effective)", [a - b for a, b in zip(uncooled_adiabatic_wall_temp, adiabatic_wall_temp)], "K")
     print("Gas-film Cp basis: saturated-liquid Cp (current model)")
-#to be completley transparent chatgpt rewrote the csv writer and helped debug the film cooling but otherwise nothing else :)))
+#to be completley transparent chatgpt rewrote the csv writer and helped debug the film cooling code but otherwise nothing else :)))
