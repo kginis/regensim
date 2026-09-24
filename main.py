@@ -30,8 +30,9 @@ Expansion_Ratio = 4.0
 
 #Cooling Settings
 Two_Pass = False #flowing from top to bottom, to top again
-coolant_parameter=0.35 #fraction of total hydraulic perimiter that is being cooled. conservative estimate =~ 0.35. key param to tune and unfortunatley numbers are very sensitive to changing it
+coolant_parameter=0.35 #fraction of total hydraulic perimiter that is being cooled. conservative estimate = 0.35. key param to tune and unfortunatley numbers are very sensitive to changing it
 generatrix_angle=30 #degrees, constant angle relative to the center axis of engine
+Variable_Width=True
 Film_Cooling=True 
 
 #Cooling Inputs
@@ -45,6 +46,7 @@ Channel_Width = 0.0012 #meters
 Channel_Height = 0.0012
 Channel_Count = 32.0
 Channel_Wall = 0.001 #1mm
+Channel_Rib = 0.0015
 Channel_Conductivity = 130
 Coolant_Inlet_Temp = 298.15 #kelvin
 Coolant_Inlet_Pressure_Bar = 50
@@ -55,7 +57,7 @@ Coolant_Inlet_Pressure_Bar = 50
 
 #Cooling Values
 Hydraulic_Diameter=4*(Channel_Width*Channel_Height)/(2*Channel_Width+2*Channel_Height)
-Channel_Area=(Channel_Width*Channel_Height)
+Channel_Area=(Channel_Width*Channel_Height) #ignored if variable area is on
 
 #conversions
 Chamber_Pressure_Pa = Chamber_Pressure_bar*100000
@@ -468,10 +470,20 @@ mach_number=[]
 gas_temp=[]
 chamber_pressure=[]
 adiabatic_wall_temp=[]
+channel_area=[]
 gas_velocity=[]
 
 for radius in nozzlegeoemtry:
     with filename.open("r", newline="", encoding="utf-8") as isenflow:
+
+        if Variable_Width:
+            try:
+                local_channel_width=((2*float(radius[1])*math.pi)/Channel_Count)-Channel_Rib
+            except ValueError:
+                continue
+            channel_area.append(local_channel_width*Channel_Height)
+        else:
+            channel_area.append(Channel_Area)
 
         isentropicflow = csv.reader(isenflow)
         isentropicflowlookup = list(isentropicflow)
@@ -531,8 +543,6 @@ for radius in nozzlegeoemtry:
             chamber_pressure.append(float(Pressure))
         except ValueError:
             continue
-
-#cstar*mdot/throatarea
 
 def x_bar(endstation):
     reference_station = 0
@@ -668,8 +678,12 @@ while dev >= 1e-6:
 
     dev = abs(f_new - f)
     f = f_new
+coolant_velocity=[]
 
-coolant_velocity=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*Channel_Area*Channel_Count)  #m/s
+for area in channel_area:
+    coolant_velocity_local=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*area*Channel_Count)  #m/s
+    coolant_velocity.append(coolant_velocity_local)
+
 first_pass_dist=0
 second_pass_dist=0
 j=0
@@ -696,7 +710,7 @@ def calculate_pass_pressures(stations, inlet_pressure):
 
         pressures[i] = (
             inlet_pressure
-            - deltaP(f, distance, coolant_velocity, rho_in)
+            - deltaP(f, distance, coolant_velocity[i], rho_in)
         )
 
         previous = i
@@ -737,7 +751,7 @@ for i in range(len(area_ratios) - 1, -1, -1):
     #print(second_pass_dist+first_pass_dist)
     coolant_pressures.append(
                 Coolant_Inlet_Pressure_PA
-                - deltaP(f,first_pass_dist+second_pass_dist,coolant_velocity,coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp))
+                - deltaP(f,first_pass_dist+second_pass_dist,coolant_velocity[i],coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp))
             )
     j=i
 
@@ -833,7 +847,7 @@ for i in thermal_indices:
                 coolant_pressures[i], coolant_temp
             ),
             Channel_Count,
-            coolant_velocity,
+            coolant_velocity[i],
         )
 
         R_g = 1.0 / (hg_local * gas_area)
@@ -979,6 +993,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
         "Gas-Side Wall Temperature (K)",
         "Coolant-Side Wall Temperature (K)",
         "Coolant Temperature (K)",
+        "Coolant Velocity (m/s)",
         "",
         "Heat Transferred (W)",
         "Heat Flux (W/m^2)",
@@ -1013,7 +1028,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             adiabatic_wall_temp[i],
             chamber_pressure[i],
             "",
-            coolant_velocity,
+            coolant_velocity[i],
             coolant_pressures[i],
             coolant_specific_heat_list[k],
             coolant_rho_list[k],
@@ -1026,6 +1041,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             Twg_list[k],
             Twl_list[k],
             Tc_list[k],
+            coolant_velocity[k],
             "",
             Q_list[k],
             q_heatflux[k],
@@ -1068,7 +1084,8 @@ print_range("Uncooled adiabatic wall temperature", uncooled_adiabatic_wall_temp,
 print_range("Gas temperature", gas_temp, "K")
 print_range("Gas velocity", gas_velocity, "m/s")
 print_range("Regen coolant temperature (all modeled passes)", Tc_list + Tc_2_list, "K")
-print(f"Regen coolant velocity: {coolant_velocity:.6g} m/s")
+print(f"Regen coolant velocity max:", max(coolant_velocity), "m/s")
+print(f"Regen coolant velocity min:", min(coolant_velocity), "m/s")
 print_range("Coolant-side wall temperature", Twl_list, "K")
 print_range("Gas-side wall temperature", Twg_list, "K")
 print_range("Heat flux", q_heatflux, "W/m^2")
