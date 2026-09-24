@@ -11,48 +11,61 @@ from rocketcea.units import add_user_units
 # =============================================================================
 # USER-EDITABLE INPUTS
 # =============================================================================
-identifier='Lynx'
+identifier='BristolSEDS'
 
 #Performance Inputs
 P_Ambient=101300
-Cstar_efficiency = 0.90
+Cstar_efficiency = 1.00
 
 #Chamber_Inputs
-throat_r_D=1
-chamber_diameter=0.03*2 #meters
-total_mdot = 1.675
+throat_r_D=0.045456
+chamber_diameter=0.0368*2 #meters
+total_mdot = 2.489
 
 #CEA Inputs
 Chamber_Pressure_bar = 25 #this is the initial guess, mdot calculated fr later
-Mass_Ratio = 1.720
-Expansion_Ratio = 4.0
+Mass_Ratio = 3.2
+Expansion_Ratio = 3.36
 
 #Cooling Settings
 Two_Pass = False #flowing from top to bottom, to top again
 coolant_parameter=0.35 #fraction of total hydraulic perimiter that is being cooled. conservative estimate = 0.35. key param to tune and unfortunatley numbers are very sensitive to changing it
 generatrix_angle=30 #degrees, constant angle relative to the center axis of engine
-Variable_Width=True
+Constant_Rib=False
+Variable_Width=True #both cannot be true
 Film_Cooling=True 
+x_pdms = 1.5 #100% doesn't work
 
 #Cooling Inputs
 Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025 #25 Ra
 Coolant_Mdot = total_mdot*1/(1+Mass_Ratio) #kg/s
-Film_Mdot = Coolant_Mdot*0.118
+Film_Mdot = total_mdot*0.175
 Film_Inlet_Temp = 383
-Channel_Width = 0.0012 #meters
-Channel_Height = 0.0012
-Channel_Count = 32.0
-Channel_Wall = 0.001 #1mm
-Channel_Rib = 0.0015
-Channel_Conductivity = 130
 Coolant_Inlet_Temp = 298.15 #kelvin
-Coolant_Inlet_Pressure_Bar = 50
+Coolant_Inlet_Pressure_Bar = 30
+Channel_Conductivity = 130
+
+#Channel Inputs
+Channel_Width = 0.0012 #meters
+Channel_Height = 0.00125
+Channel_Count = 42.0
+Channel_Wall = 0.0008 #0.8mm
+Channel_Rib = 0.0015
+
+#Variable Width Parameters
+Channel_Width_Injector=0.005
+Channel_Width_Throat=0.002
+Channel_Width_Manifold=0.003
 
 # =============================================================================
 # END USER-EDITABLE INPUTS
 # =============================================================================
+
+if Variable_Width and Constant_Rib:
+    print("FATAL ERROR: Cannot have both variable channel width and Constant Ribs. Disable one.")
+    exit(6767)
 
 #Cooling Values
 Hydraulic_Diameter=4*(Channel_Width*Channel_Height)/(2*Channel_Width+2*Channel_Height)
@@ -65,24 +78,36 @@ Coolant_Inlet_Pressure_PA = Coolant_Inlet_Pressure_Bar*100000
 if Two_Pass:
     Channel_Count=Channel_Count/2
 
-#IPA properties (dont touch)
 propanol_card = """
 fuel C3H8O(L)  C 3 H 8 O 1  wt%=100.0
-h,cal=-76052.0  t(k)=298.15  rho.g/cc=0.803
+h,cal=-76052.0  t(k)=298.15  rho.g/cc=0.803 
 """
-
+#double check PDMS values w/ NIST
 add_new_fuel("1Propanol", propanol_card)
 
-add_user_units('millipoise', 'Pa-s', 1e-4)
+fuel_blend_card = f"""
+fuel C3H8O(L)  C 3 H 8 O 1  wt%={100.0 - x_pdms:.6f}
+h,cal=-76052.0  t(k)=298.15  rho.g/cc=0.803
+
+fuel PDMS(L)  C 2 H 6 O 1 Si 1  wt%={x_pdms:.6f}
+h,cal=-178712.0  t(k)=298.15  rho.g/cc=0.970
+"""
+
+fuel_blend_name = f"IPA_PDMS_{x_pdms:g}wt"
+
+add_new_fuel(fuel_blend_name, fuel_blend_card)
+
+
+add_user_units("millipoise", "Pa-s", 1e-4)
 
 ispObj = CEA_Obj(
-    oxName='N2O',
-    fuelName='1Propanol',
-    cstar_units='m/s',
-    pressure_units='Bar',
-    temperature_units='K',
-    specific_heat_units='J/kg-K',
-    viscosity_units='Pa-s',
+    oxName="N2O",
+    fuelName=fuel_blend_name,
+    cstar_units="m/s",
+    pressure_units="Bar",
+    temperature_units="K",
+    specific_heat_units="J/kg-K",
+    viscosity_units="Pa-s",
     density_units="kg/m^3",
     enthalpy_units="J/kg",
 )
@@ -94,7 +119,7 @@ def find_throat(list):
             value=(row[1])
             if minimum == None or value<minimum:
                 minimum=value
-    return minimum  
+    return minimum
 
 with open('nozzle.csv', 'r') as nozzle:
 
@@ -475,14 +500,7 @@ gas_velocity=[]
 for radius in nozzlegeoemtry:
     with filename.open("r", newline="", encoding="utf-8") as isenflow:
 
-        if Variable_Width:
-            try:
-                local_channel_width=((2*float(radius[1])*math.pi)/Channel_Count)-Channel_Rib
-            except ValueError:
-                continue
-            channel_area.append(local_channel_width*Channel_Height)
-        else:
-            channel_area.append(Channel_Area)
+        h=nozzlegeoemtry.index(radius)
 
         isentropicflow = csv.reader(isenflow)
         isentropicflowlookup = list(isentropicflow)
@@ -540,8 +558,28 @@ for radius in nozzlegeoemtry:
             adiabatic_wall_temp.append(float(Adiabatic_Wall))
             gas_velocity.append(float(Velocity))
             chamber_pressure.append(float(Pressure))
+
         except ValueError:
             continue
+for i in range(len(area_ratios)):
+    if Constant_Rib:
+        try:
+            local_channel_width=((2*float(chamber_radii[i])*math.pi)/Channel_Count)-Channel_Rib
+        except ValueError:
+            continue
+        channel_area.append(local_channel_width*Channel_Height)
+    elif Variable_Width:
+        if x_positions[i]<=0:
+            fraction = (x_positions[i] - x_positions[0]) / -x_positions[0]
+            local_channel_width=(Channel_Width_Injector+(Channel_Width_Throat-Channel_Width_Injector)*fraction)
+        else:
+            fraction = (x_positions[i]) / x_positions[-1]
+            local_channel_width=(Channel_Width_Throat+(Channel_Width_Manifold-Channel_Width_Throat)*fraction)
+        channel_area.append(local_channel_width*Channel_Height)
+    else:
+        channel_area.append(Channel_Area)
+    
+
 
 def x_bar(endstation):
     reference_station = 0
