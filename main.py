@@ -19,12 +19,12 @@ Cstar_efficiency = 1.00
 
 #Chamber_Inputs
 throat_r_D=0.045456
-chamber_diameter=0.0368*2 #meters
-total_mdot = 2.489
+chamber_diameter=0.05940012626249207*2 #meters
+total_mdot = 2.57
 
 #CEA Inputs
 Chamber_Pressure_bar = 25 #this is the initial guess, mdot calculated fr later
-Mass_Ratio = 3.2
+Mass_Ratio = 3.0
 Expansion_Ratio = 3.36
 
 #Cooling Settings
@@ -34,23 +34,23 @@ generatrix_angle=30 #degrees, constant angle relative to the center axis of engi
 Constant_Rib=False
 Variable_Width=True #both cannot be true
 Film_Cooling=True 
-x_pdms = 1.5 #100% doesn't work
+x_pdms = 0.0 #likley doesnt work at all lol
 
 #Cooling Inputs
 Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025 #25 Ra
 Coolant_Mdot = total_mdot*1/(1+Mass_Ratio) #kg/s
-Film_Mdot = total_mdot*0.175
+Film_Mdot = total_mdot*0.15
 Film_Inlet_Temp = 383
 Coolant_Inlet_Temp = 298.15 #kelvin
 Coolant_Inlet_Pressure_Bar = 30
-Channel_Conductivity = 130
+Channel_Conductivity = 208
 
 #Channel Inputs
 Channel_Width = 0.0012 #meters
 Channel_Height = 0.00125
-Channel_Count = 42.0
+Channel_Count = 40.0
 Channel_Wall = 0.0008 #0.8mm
 Channel_Rib = 0.0015
 
@@ -493,6 +493,7 @@ area_ratios=[]
 mach_number=[]
 gas_temp=[]
 chamber_pressure=[]
+channel_widths=[]
 adiabatic_wall_temp=[]
 channel_area=[]
 gas_velocity=[]
@@ -561,6 +562,10 @@ for radius in nozzlegeoemtry:
 
         except ValueError:
             continue
+
+hydraulicpermiters=[]
+hydraulicradii=[]
+
 for i in range(len(area_ratios)):
     if Constant_Rib:
         try:
@@ -568,6 +573,7 @@ for i in range(len(area_ratios)):
         except ValueError:
             continue
         channel_area.append(local_channel_width*Channel_Height)
+        channel_widths.append(local_channel_width)
     elif Variable_Width:
         if x_positions[i]<=0:
             fraction = (x_positions[i] - x_positions[0]) / -x_positions[0]
@@ -576,9 +582,13 @@ for i in range(len(area_ratios)):
             fraction = (x_positions[i]) / x_positions[-1]
             local_channel_width=(Channel_Width_Throat+(Channel_Width_Manifold-Channel_Width_Throat)*fraction)
         channel_area.append(local_channel_width*Channel_Height)
+        channel_widths.append(local_channel_width)
     else:
         channel_area.append(Channel_Area)
-    
+        channel_widths.append(Channel_Width)
+    local_hydraulic_perimiter=2*Channel_Height+2*local_channel_width
+    hydraulicpermiters.append(local_hydraulic_perimiter) 
+    hydraulicradii.append((local_channel_width*Channel_Height)/(local_hydraulic_perimiter))
 
 
 def x_bar(endstation):
@@ -680,46 +690,49 @@ if Film_Cooling:
 
 #coolant velocity math
 #assuming constant density for this, b/c lazy
-
-coolant_pressures=[]
-dev=1.5
-hydraulicpermiter=2*Channel_Height+2*Channel_Width #maybe i will refractor the variable names to be less cooked
-hydraulicradius=(Channel_Width*Channel_Height)/(hydraulicpermiter)
-
-Reynolds = (
-    4 * (Coolant_Mdot / Channel_Count)
-    / (
-        coolant_kin_viscocity(
-            Coolant_Inlet_Pressure_PA,
-            Coolant_Inlet_Temp,
-        )
-        * hydraulicpermiter
-        * coolant_rho(
-            Coolant_Inlet_Pressure_PA,
-            Coolant_Inlet_Temp,
-        )
-    )
-)
-
-f = 0.02
-dev = float("inf")
-
-while dev >= 1e-6:
-    log_argument = (
-        Surface_Roughness / (14.8 * hydraulicradius)
-        + 2.51 / (Reynolds * math.sqrt(f))
-    )
-
-    inverse_sqrt_f = -2 * math.log10(log_argument)
-    f_new = 1 / inverse_sqrt_f**2
-
-    dev = abs(f_new - f)
-    f = f_new
 coolant_velocity=[]
+coolant_pressures=[]
+friction_factors=[]
 
-for area in channel_area:
-    coolant_velocity_local=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*area*Channel_Count)  #m/s
-    coolant_velocity.append(coolant_velocity_local)
+for i in range(len(channel_area)):
+
+    dev=1.5
+
+    f = 0.02
+    dev = float("inf")
+    while dev >= 1e-6:
+        Reynolds = (
+        4 * (Coolant_Mdot / Channel_Count)
+        / (
+            coolant_kin_viscocity(
+                Coolant_Inlet_Pressure_PA,
+                Coolant_Inlet_Temp,
+            )
+            * hydraulicpermiters[i]
+            * coolant_rho(
+                Coolant_Inlet_Pressure_PA,
+                Coolant_Inlet_Temp,
+            )
+            )
+        )
+
+        log_argument = (
+            Surface_Roughness / (14.8 * hydraulicradii[i])
+            + 2.51 / (Reynolds * math.sqrt(f))
+        )
+
+        inverse_sqrt_f = -2 * math.log10(log_argument)
+        f_new = 1 / inverse_sqrt_f**2
+
+        dev = abs(f_new - f)
+        f = f_new
+
+        friction_factors.append(f)
+
+        coolant_velocity_local=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*channel_area[i]*Channel_Count)  #m/s
+        coolant_velocity.append(coolant_velocity_local)
+
+
 
 first_pass_dist=0
 second_pass_dist=0
@@ -747,7 +760,7 @@ def calculate_pass_pressures(stations, inlet_pressure):
 
         pressures[i] = (
             inlet_pressure
-            - deltaP(f, distance, coolant_velocity[i], rho_in)
+            - deltaP(friction_factors[i], distance, coolant_velocity[i], rho_in)
         )
 
         previous = i
@@ -788,7 +801,7 @@ for i in range(len(area_ratios) - 1, -1, -1):
     #print(second_pass_dist+first_pass_dist)
     coolant_pressures.append(
                 Coolant_Inlet_Pressure_PA
-                - deltaP(f,first_pass_dist+second_pass_dist,coolant_velocity[i],coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp))
+                - deltaP(friction_factors[i],first_pass_dist+second_pass_dist,coolant_velocity[i],coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp))
             )
     j=i
 
@@ -832,7 +845,7 @@ for i in thermal_indices:
     channel_length = ds / math.cos(theta)
 
     coolant_area = (
-        hydraulicpermiter * coolant_parameter
+        hydraulicpermiters[i] * coolant_parameter
         * Channel_Count * channel_length
     )
     if Two_Pass:
