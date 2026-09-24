@@ -27,7 +27,6 @@ Chamber_Pressure_bar = 25 #this is the initial guess, mdot calculated fr later
 Mass_Ratio = 1.720
 Expansion_Ratio = 4.0
 
-
 #Cooling Settings
 Two_Pass = False #flowing from top to bottom, to top again
 coolant_parameter=0.35 #fraction of total hydraulic perimiter that is being cooled. conservative estimate = 0.35. key param to tune and unfortunatley numbers are very sensitive to changing it
