@@ -11,53 +11,55 @@ from rocketcea.units import add_user_units
 # =============================================================================
 # USER-EDITABLE INPUTS
 # =============================================================================
-identifier='BristolSEDS'
+identifier = "BristolSEDS"
 
-#Performance Inputs
-P_Ambient=101300
+# Performance Inputs
+P_Ambient = 101300
 Cstar_efficiency = 1.00
 
-#Chamber_Inputs
-throat_r_D=0.045456
-chamber_diameter=0.05940012626249207*2 #meters
-total_mdot = 2.57
+# Chamber Inputs
+throat_r_D = 0.045456
+chamber_diameter = 0.05940012626249207 * 2  # m
+total_mdot = 3.2
 
-#CEA Inputs
-Chamber_Pressure_bar = 25 #this is the initial guess, mdot calculated fr later
-Mass_Ratio = 3.0
+# CEA Inputs
+Mass_Ratio = 2.0
 Expansion_Ratio = 3.36
 
-#Cooling Settings
-Two_Pass = False #flowing from top to bottom, to top again
-coolant_parameter=0.35 #fraction of total hydraulic perimiter that is being cooled. conservative estimate = 0.35. key param to tune and unfortunatley numbers are very sensitive to changing it
-generatrix_angle=30 #degrees, constant angle relative to the center axis of engine
-Constant_Rib=False
-Variable_Width=True #both cannot be true
-Film_Cooling=True 
-x_pdms = 0.0 #likley doesnt work at all lol
+# Cooling Settings
+Two_Pass = False
+generatrix_angle = 0  # degrees
+Constant_Rib = False
+Variable_Width = True
+Film_Cooling = True
 
-#Cooling Inputs
+# Cooling Inputs
 Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
-Surface_Roughness = 0.000025 #25 Ra
-Coolant_Mdot = total_mdot*1/(1+Mass_Ratio) #kg/s
-Film_Mdot = total_mdot*0.15
+Surface_Roughness = 0.000025
+Coolant_Mdot = total_mdot / (1 + Mass_Ratio)  # 1.0667 kg/s
+Film_Mdot = total_mdot * 0.15                 # 0.48 kg/s
 Film_Inlet_Temp = 383
-Coolant_Inlet_Temp = 298.15 #kelvin
+Coolant_Inlet_Temp = 298.15
 Coolant_Inlet_Pressure_Bar = 30
 Channel_Conductivity = 208
 
-#Channel Inputs
-Channel_Width = 0.0012 #meters
-Channel_Height = 0.00125
-Channel_Count = 40.0
-Channel_Wall = 0.0008 #0.8mm
+# Channel Inputs
+Channel_Width = 0.0012
+Channel_Height = 0.002
+Channel_Count = 52
+Channel_Wall = 0.0008
 Channel_Rib = 0.0015
 
-#Variable Width Parameters
-Channel_Width_Injector=0.005
-Channel_Width_Throat=0.002
-Channel_Width_Manifold=0.003
+# Variable Width Parameters
+Channel_Width_Injector = 0.005
+Channel_Width_Throat = 0.002
+Channel_Width_Manifold = 0.003
+
+# Modifiers
+x_pdms = 0.00                   
+pdms_modifier = 1.0           
+bartz_coeff=0.55
 
 # =============================================================================
 # END USER-EDITABLE INPUTS
@@ -67,9 +69,10 @@ if Variable_Width and Constant_Rib:
     print("FATAL ERROR: Cannot have both variable channel width and Constant Ribs. Disable one.")
     exit(6767)
 
+Chamber_Pressure_bar = 35 #this is the initial guess, mdot calculated fr later
+
 #Cooling Values
-Hydraulic_Diameter=4*(Channel_Width*Channel_Height)/(2*Channel_Width+2*Channel_Height)
-Channel_Area=(Channel_Width*Channel_Height) #ignored if variable area is on
+#Hydraulic_Diameter=4*(Channel_Width*Channel_Height)/(2*Channel_Width+2*Channel_Height)
 
 #conversions
 Chamber_Pressure_Pa = Chamber_Pressure_bar*100000
@@ -157,7 +160,7 @@ while dev > 0.01:
     gas_enthalpy = ispObj.get_Chamber_H(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, eps=Expansion_Ratio)
 
     #Cstar
-    Cstar_meters_sec = Cstar_efficiency*(ispObj.get_Cstar(Pc=Chamber_Pressure_bar, MR=Mass_Ratio))
+    Cstar_meters_sec = (ispObj.get_Cstar(Pc=Chamber_Pressure_bar, MR=Mass_Ratio))
     #print(Cstar_meters_sec)
 
     #Temps: Chamber, Nozzle, Exit
@@ -293,22 +296,22 @@ def hg_bartz(radius,Cp,mu,Pr,Pc,C_star,Area_Ratio,throat_curvature_radius): #not
 
     bartz=(
         (0.026/D_star**0.2)*(((mu**0.2)*Cp)/Pr**0.6)*((Pc/C_star)**0.8)*((D_star/throat_curvature_radius)**0.1)*(Area_Ratio)**-0.9
-        )
+        ) 
 
     return bartz
 
-def hl_RPE(c_cp,c_mdot,c_rho,c_mu,c_conductivity, channelqty, c_velocity):
+def hl_RPE(c_cp,c_mdot,c_rho,c_mu,c_conductivity, channelqty, c_velocity,i):
 
-    hl = 0.023*c_cp*(c_mdot/(Channel_Area*channelqty))*((Hydraulic_Diameter*c_velocity*c_rho)/c_mu)**-0.2*((c_mu*c_cp)/c_conductivity)**(-2/3)
+    hl = 0.023*c_cp*(c_mdot/(channel_area[i]*channelqty))*((hydraulicdiameters[i]*c_velocity*c_rho)/c_mu)**-0.2*((c_mu*c_cp)/c_conductivity)**(-2/3)
 
     return hl
 #def hl_hezel_huang(coolant):
     #maybe later
 
-def deltaP(f,L,V,rho):
+def deltaP(f,L,V,rho,i):
     deltaP=(
           (f*L*(V)**2*rho) /
-          (2*Hydraulic_Diameter)
+          (2*hydraulicradii[i]*9.81)
      )
     return deltaP
 
@@ -562,9 +565,10 @@ for radius in nozzlegeoemtry:
 
         except ValueError:
             continue
-
-hydraulicpermiters=[]
+hydraulicdiameters=[]
+hydraulicperimiters=[]
 hydraulicradii=[]
+channel_ribs=[]
 
 for i in range(len(area_ratios)):
     if Constant_Rib:
@@ -574,21 +578,30 @@ for i in range(len(area_ratios)):
             continue
         channel_area.append(local_channel_width*Channel_Height)
         channel_widths.append(local_channel_width)
+        channel_ribs.append(Channel_Rib)
     elif Variable_Width:
         if x_positions[i]<=0:
             fraction = (x_positions[i] - x_positions[0]) / -x_positions[0]
             local_channel_width=(Channel_Width_Injector+(Channel_Width_Throat-Channel_Width_Injector)*fraction)
+            local_channel_rib=((2*float(chamber_radii[i])*math.pi)/Channel_Count)-local_channel_width
         else:
             fraction = (x_positions[i]) / x_positions[-1]
             local_channel_width=(Channel_Width_Throat+(Channel_Width_Manifold-Channel_Width_Throat)*fraction)
+            local_channel_rib=((2*float(chamber_radii[i])*math.pi)/Channel_Count)-local_channel_width
         channel_area.append(local_channel_width*Channel_Height)
         channel_widths.append(local_channel_width)
+        channel_ribs.append(local_channel_rib)
     else:
-        channel_area.append(Channel_Area)
+        local_channel_width=Channel_Width
+        channel_area.append(Channel_Width*Channel_Height)
         channel_widths.append(Channel_Width)
+        channel_ribs.append(local_channel_rib)
+
     local_hydraulic_perimiter=2*Channel_Height+2*local_channel_width
-    hydraulicpermiters.append(local_hydraulic_perimiter) 
-    hydraulicradii.append((local_channel_width*Channel_Height)/(local_hydraulic_perimiter))
+    hydraulicperimiters.append(local_hydraulic_perimiter) 
+    local_hydraulic_radius=((local_channel_width*Channel_Height)/(local_hydraulic_perimiter))
+    hydraulicradii.append(local_hydraulic_radius)
+    hydraulicdiameters.append(local_hydraulic_radius*4)
 
 
 def x_bar(endstation):
@@ -697,24 +710,24 @@ friction_factors=[]
 for i in range(len(channel_area)):
 
     dev=1.5
-
     f = 0.02
+
+    Reynolds = (
+            4 * (Coolant_Mdot / Channel_Count)
+            / (
+                coolant_kin_viscocity(
+                    Coolant_Inlet_Pressure_PA,
+                    Coolant_Inlet_Temp,
+                )
+                * hydraulicperimiters[i]
+                * coolant_rho(
+                    Coolant_Inlet_Pressure_PA,
+                    Coolant_Inlet_Temp,
+                )
+                )
+            )
     dev = float("inf")
     while dev >= 1e-6:
-        Reynolds = (
-        4 * (Coolant_Mdot / Channel_Count)
-        / (
-            coolant_kin_viscocity(
-                Coolant_Inlet_Pressure_PA,
-                Coolant_Inlet_Temp,
-            )
-            * hydraulicpermiters[i]
-            * coolant_rho(
-                Coolant_Inlet_Pressure_PA,
-                Coolant_Inlet_Temp,
-            )
-            )
-        )
 
         log_argument = (
             Surface_Roughness / (14.8 * hydraulicradii[i])
@@ -729,8 +742,8 @@ for i in range(len(channel_area)):
 
         friction_factors.append(f)
 
-        coolant_velocity_local=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*channel_area[i]*Channel_Count)  #m/s
-        coolant_velocity.append(coolant_velocity_local)
+    coolant_velocity_local=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*channel_area[i]*Channel_Count)  #m/s
+    coolant_velocity.append(coolant_velocity_local)
 
 
 
@@ -760,7 +773,7 @@ def calculate_pass_pressures(stations, inlet_pressure):
 
         pressures[i] = (
             inlet_pressure
-            - deltaP(friction_factors[i], distance, coolant_velocity[i], rho_in)
+            - deltaP(friction_factors[i], distance, coolant_velocity[i], rho_in,i)
         )
 
         previous = i
@@ -801,7 +814,7 @@ for i in range(len(area_ratios) - 1, -1, -1):
     #print(second_pass_dist+first_pass_dist)
     coolant_pressures.append(
                 Coolant_Inlet_Pressure_PA
-                - deltaP(friction_factors[i],first_pass_dist+second_pass_dist,coolant_velocity[i],coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp))
+                - deltaP(friction_factors[i],first_pass_dist+second_pass_dist,coolant_velocity[i],coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp),i)
             )
     j=i
 
@@ -844,10 +857,6 @@ for i in thermal_indices:
     )
     channel_length = ds / math.cos(theta)
 
-    coolant_area = (
-        hydraulicpermiters[i] * coolant_parameter
-        * Channel_Count * channel_length
-    )
     if Two_Pass:
         coolant_area=coolant_area*2
 
@@ -880,6 +889,8 @@ for i in thermal_indices:
                 mach_number[i],
                 0.6,
             )
+            * pdms_modifier
+            * bartz_coeff
         )
 
         hl_local = hl_RPE(
@@ -898,7 +909,33 @@ for i in thermal_indices:
             ),
             Channel_Count,
             coolant_velocity[i],
+            i,
         )
+
+        #actually good setup
+        m_fin = math.sqrt(
+        2 * hl_local
+        / (Channel_Conductivity * channel_ribs[i])
+        )
+
+        fin_argument = m_fin * Channel_Height
+
+        fin_efficiency = (
+            math.tanh(fin_argument) / fin_argument
+        )
+
+        effective_wetted_perimeter = (
+            channel_widths[i]
+            + 2 * fin_efficiency * Channel_Height
+        )
+
+        coolant_area = (
+            effective_wetted_perimeter
+            * Channel_Count
+            * channel_length
+        )
+
+        R_l = 1.0 / (hl_local * coolant_area)
 
         R_g = 1.0 / (hg_local * gas_area)
         R_w = Channel_Wall / (
@@ -930,12 +967,9 @@ for i in thermal_indices:
 
     Twl = Twg - Q * R_w
     if Two_Pass:
-        coolant_temp=coolant_temp+(Q*0.5*1/coolant_parameter)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp))
+        coolant_temp=coolant_temp+(Q*0.5)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp))
     else:
-        coolant_temp=coolant_temp+(Q*(1/coolant_parameter))/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp)) 
-        #super conservative way to calculate coolant temp, assuming heat is entering the coolant on the entire hydraulic perimiter, while coolant is only absorbing heat on 0.3x the entire hydraulic perimiter
-        #i know that a better way to do this is to model the channel walls and heat flux into/through the walls and then into the coolant, and I should do that
-        #but, the results seem to make sense
+        coolant_temp=coolant_temp+(Q)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp)) 
 
 
     hg.append(hg_local)
@@ -1134,9 +1168,9 @@ print_range("Uncooled adiabatic wall temperature", uncooled_adiabatic_wall_temp,
 print_range("Gas temperature", gas_temp, "K")
 print_range("Gas velocity", gas_velocity, "m/s")
 print_range("Regen coolant temperature (all modeled passes)", Tc_list + Tc_2_list, "K")
-print(f"Regen coolant velocity max:", max(coolant_velocity), "m/s")
-print(f"Regen coolant velocity min:", min(coolant_velocity), "m/s")
+print_range(f"Regen coolant velocity max:", coolant_velocity, "m/s")
 print_range("Coolant-side wall temperature", Twl_list, "K")
+print('Coolant pressure drop', (max(coolant_pressures)-min(coolant_pressures))/100000, 'Bar')
 print_range("Gas-side wall temperature", Twg_list, "K")
 print_range("Heat flux", q_heatflux, "W/m^2")
 print(f"Sum of segment heat-transfer values: {sum(Q_list):.6g} W")
