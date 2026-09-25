@@ -11,16 +11,16 @@ from rocketcea.units import add_user_units
 # =============================================================================
 # USER-EDITABLE INPUTS
 # =============================================================================
-identifier = "BristolSEDS"
+identifier = "Lynx"
 
 # Performance Inputs
 P_Ambient = 101300
 Cstar_efficiency = 1.00
 
 # Chamber Inputs
-throat_r_D = 0.045456
+throat_r_D = 1.5
 chamber_diameter = 0.05940012626249207 * 2  # m
-total_mdot = 3.2
+total_mdot = 2.0
 
 # CEA Inputs
 Mass_Ratio = 2.0
@@ -29,8 +29,8 @@ Expansion_Ratio = 3.36
 # Cooling Settings
 Two_Pass = False
 generatrix_angle = 0  # degrees
-Constant_Rib = False
-Variable_Width = True
+Constant_Rib = True
+Variable_Width = False
 Film_Cooling = True
 
 # Cooling Inputs
@@ -42,24 +42,24 @@ Film_Mdot = total_mdot * 0.15                 # 0.48 kg/s
 Film_Inlet_Temp = 383
 Coolant_Inlet_Temp = 298.15
 Coolant_Inlet_Pressure_Bar = 30
-Channel_Conductivity = 208
+Channel_Conductivity = 130
 
 # Channel Inputs
-Channel_Width = 0.0012
-Channel_Height = 0.002
-Channel_Count = 52
+Channel_Width = 0.0015
+Channel_Height = 0.005
+Channel_Count = 40
 Channel_Wall = 0.0008
 Channel_Rib = 0.0015
 
 # Variable Width Parameters
-Channel_Width_Injector = 0.005
+Channel_Width_Injector = 0.004
 Channel_Width_Throat = 0.002
 Channel_Width_Manifold = 0.003
 
 # Modifiers
 x_pdms = 0.00                   
-pdms_modifier = 1.0           
-bartz_coeff=0.55
+pdms_modifier = 1.0 # 1% = 85%,      
+bartz_coeff=0.75 #0.75, keep it that way...
 
 # =============================================================================
 # END USER-EDITABLE INPUTS
