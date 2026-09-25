@@ -19,37 +19,37 @@ Cstar_efficiency = 1.00
 
 # Chamber Inputs
 throat_r_D = 1.5
-chamber_diameter = 0.05940012626249207 * 2  # m
+chamber_diameter = 0.0441 * 2  # m
 total_mdot = 2.0
 
 # CEA Inputs
 Mass_Ratio = 2.0
-Expansion_Ratio = 3.36
+Expansion_Ratio = 4.5
 
 # Cooling Settings
-Two_Pass = False
-generatrix_angle = 0  # degrees
+Two_Pass = True
+generatrix_angle = 30  # degrees
 Constant_Rib = True
 Variable_Width = False
-Film_Cooling = True
+Film_Cooling = False
 
 # Cooling Inputs
 Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025
-Coolant_Mdot = total_mdot / (1 + Mass_Ratio)  # 1.0667 kg/s
-Film_Mdot = total_mdot * 0.15                 # 0.48 kg/s
+Coolant_Mdot = total_mdot / (1 + Mass_Ratio) 
+Film_Mdot = Coolant_Mdot * 0.2                 
 Film_Inlet_Temp = 383
 Coolant_Inlet_Temp = 298.15
 Coolant_Inlet_Pressure_Bar = 30
-Channel_Conductivity = 130
+Channel_Conductivity = 330
 
 # Channel Inputs
-Channel_Width = 0.0015
-Channel_Height = 0.005
+Channel_Width = 0.0012
+Channel_Height = 0.00125
 Channel_Count = 40
-Channel_Wall = 0.0008
-Channel_Rib = 0.0015
+Channel_Wall = 0.0012
+Channel_Rib = 0.001
 
 # Variable Width Parameters
 Channel_Width_Injector = 0.004
@@ -58,8 +58,8 @@ Channel_Width_Manifold = 0.003
 
 # Modifiers
 x_pdms = 0.00                   
-pdms_modifier = 1.0 # 1% = 85%,      
-bartz_coeff=0.75 #0.75, keep it that way...
+pdms_modifier = 1.0 # 1% = .85, 0% = 1.00   
+bartz_coeff=0.75 # 0.75 is based off of making it match (conservativley) with two R2S datapoints: LURA & Bristol SEDS. Seems to be within a reasonable range ish for that and will be tuned better when I fire this thing!!
 
 # =============================================================================
 # END USER-EDITABLE INPUTS
@@ -78,19 +78,16 @@ Chamber_Pressure_bar = 35 #this is the initial guess, mdot calculated fr later
 Chamber_Pressure_Pa = Chamber_Pressure_bar*100000
 Coolant_Inlet_Pressure_PA = Coolant_Inlet_Pressure_Bar*100000
 
-if Two_Pass:
-    Channel_Count=Channel_Count/2
-
 propanol_card = """
 fuel C3H8O(L)  C 3 H 8 O 1  wt%=100.0
-h,cal=-76052.0  t(k)=298.15  rho.g/cc=0.803 
+h,cal=-65133  t(k)=298.15  rho.g/cc=0.803 
 """
-#double check PDMS values w/ NIST
+#bruh i just learned that rocketcea had isopropanol built in i just looked for 1-propanol #imsosmart
 add_new_fuel("1Propanol", propanol_card)
 
 fuel_blend_card = f"""
 fuel C3H8O(L)  C 3 H 8 O 1  wt%={100.0 - x_pdms:.6f}
-h,cal=-76052.0  t(k)=298.15  rho.g/cc=0.803
+h,cal=-65133  t(k)=298.15  rho.g/cc=0.803
 
 fuel PDMS(L)  C 2 H 6 O 1 Si 1  wt%={x_pdms:.6f}
 h,cal=-178712.0  t(k)=298.15  rho.g/cc=0.970
@@ -100,11 +97,19 @@ fuel_blend_name = f"IPA_PDMS_{x_pdms:g}wt"
 
 add_new_fuel(fuel_blend_name, fuel_blend_card)
 
+from rocketcea.cea_obj import add_new_fuel, add_new_oxidizer
+
+N2O_L_CARD = """
+oxid N2O(L)  N 2 O 1  wt%=100.0
+h,cal=19721.03  t(k)=298.15
+"""
+
+add_new_oxidizer("N2O_L", N2O_L_CARD)
 
 add_user_units("millipoise", "Pa-s", 1e-4)
 
 ispObj = CEA_Obj(
-    oxName="N2O",
+    oxName="N2O_L",
     fuelName=fuel_blend_name,
     cstar_units="m/s",
     pressure_units="Bar",
@@ -171,7 +176,7 @@ while dev > 0.01:
     chamber_rho = ispObj.get_Chamber_Density(Pc=Chamber_Pressure_bar, MR = Mass_Ratio)
 
     chamber_pressure_true_PA = (Cstar_meters_sec*total_mdot)/throat_area
-    dev=chamber_pressure_true_PA-Chamber_Pressure_Pa
+    dev = abs(chamber_pressure_true_PA - Chamber_Pressure_Pa)    
     Chamber_Pressure_Pa=chamber_pressure_true_PA
     Chamber_Pressure_bar=Chamber_Pressure_Pa/100000
 
@@ -301,8 +306,10 @@ def hg_bartz(radius,Cp,mu,Pr,Pc,C_star,Area_Ratio,throat_curvature_radius): #not
     return bartz
 
 def hl_RPE(c_cp,c_mdot,c_rho,c_mu,c_conductivity, channelqty, c_velocity,i):
-
-    hl = 0.023*c_cp*(c_mdot/(channel_area[i]*channelqty))*((hydraulicdiameters[i]*c_velocity*c_rho)/c_mu)**-0.2*((c_mu*c_cp)/c_conductivity)**(-2/3)
+    if Two_Pass:
+        hl = 0.023*c_cp*(c_mdot/(channel_area[i]*channelqty*0.5))*((hydraulicdiameters[i]*c_velocity*c_rho)/c_mu)**-0.2*((c_mu*c_cp)/c_conductivity)**(-2/3)
+    else:
+        hl = 0.023*c_cp*(c_mdot/(channel_area[i]*channelqty))*((hydraulicdiameters[i]*c_velocity*c_rho)/c_mu)**-0.2*((c_mu*c_cp)/c_conductivity)**(-2/3)
 
     return hl
 #def hl_hezel_huang(coolant):
@@ -310,8 +317,7 @@ def hl_RPE(c_cp,c_mdot,c_rho,c_mu,c_conductivity, channelqty, c_velocity,i):
 
 def deltaP(f,L,V,rho,i):
     deltaP=(
-          (f*L*(V)**2*rho) /
-          (2*hydraulicradii[i]*9.81)
+          f * (L / hydraulicdiameters[i]) * (rho * V**2 / 2)
      )
     return deltaP
 
@@ -595,7 +601,7 @@ for i in range(len(area_ratios)):
         local_channel_width=Channel_Width
         channel_area.append(Channel_Width*Channel_Height)
         channel_widths.append(Channel_Width)
-        channel_ribs.append(local_channel_rib)
+        channel_ribs.append((2*float(chamber_radii[i])*math.pi)/Channel_Count)
 
     local_hydraulic_perimiter=2*Channel_Height+2*local_channel_width
     hydraulicperimiters.append(local_hydraulic_perimiter) 
@@ -739,10 +745,11 @@ for i in range(len(channel_area)):
 
         dev = abs(f_new - f)
         f = f_new
-
-        friction_factors.append(f)
-
-    coolant_velocity_local=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*channel_area[i]*Channel_Count)  #m/s
+    friction_factors.append(f)
+    if Two_Pass:
+        coolant_velocity_local=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*channel_area[i]*Channel_Count*0.5)  #m/s
+    else:
+        coolant_velocity_local=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*channel_area[i]*Channel_Count)  #m/s
     coolant_velocity.append(coolant_velocity_local)
 
 
@@ -763,19 +770,18 @@ theta = math.radians(generatrix_angle)
 
 def calculate_pass_pressures(stations, inlet_pressure):
     pressures = [None] * n
-    distance = 0.0
     previous = stations[0]
+    pressures[previous] = inlet_pressure
 
-    for i in stations:
-        # Existing axial-length approximation.
-        # Replace with actual channel length for helical channels.
-        distance += abs((x_positions[i] - x_positions[previous])/math.cos(theta))
+    for i in stations[1:]:
+        segment_length = abs(x_positions[i] - x_positions[previous]) / math.cos(theta)
 
-        pressures[i] = (
-            inlet_pressure
-            - deltaP(friction_factors[i], distance, coolant_velocity[i], rho_in,i)
-        )
+        f = 0.5 * (friction_factors[previous] + friction_factors[i])
+        dh = 0.5 * (hydraulicdiameters[previous] + hydraulicdiameters[i])
+        velocity = 0.5 * (coolant_velocity[previous] + coolant_velocity[i])
 
+        dp = f * (segment_length / dh) * (rho_in * velocity**2 / 2)
+        pressures[i] = pressures[previous] - dp
         previous = i
 
     return pressures
@@ -808,15 +814,6 @@ coolant_pressures = (
     if Two_Pass
     else coolant_pressures_return
 )
-
-for i in range(len(area_ratios) - 1, -1, -1):
-    second_pass_dist=second_pass_dist+abs((x_positions[i]-x_positions[j]))
-    #print(second_pass_dist+first_pass_dist)
-    coolant_pressures.append(
-                Coolant_Inlet_Pressure_PA
-                - deltaP(friction_factors[i],first_pass_dist+second_pass_dist,coolant_velocity[i],coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp),i)
-            )
-    j=i
 
 hl=[]
 hg=[]
@@ -857,8 +854,6 @@ for i in thermal_indices:
     )
     channel_length = ds / math.cos(theta)
 
-    if Two_Pass:
-        coolant_area=coolant_area*2
 
     wall_area = gas_area  # thin-wall approximation
 
@@ -1072,6 +1067,8 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
         "Coolant Kinematic Viscosity (m^2/s)",
         "Coolant Thermal Conductivity (W/m-K)",
         "",
+        "Channel Rib Width (m)",
+        "Channel Width (m)",
         "Coolant-Side Heat Transfer Coefficient (W/m^2-K)",
         "Gas-Side Heat Transfer Coefficient (W/m^2-K)",
         "Gas-Side Wall Temperature (K)",
@@ -1099,7 +1096,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
         "Film Reference Vapor Gamma Used (-)"
     ])
 
-    for k in range(len(Twg_list) - 1, -1, -1):
+    for k, i in sorted(enumerate(thermal_indices), key=lambda pair: pair[1]):
             i = len(area_ratios) - 1 - k
 
             writer.writerow([
@@ -1112,7 +1109,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             adiabatic_wall_temp[i],
             chamber_pressure[i],
             "",
-            coolant_velocity[i],
+            coolant_velocity[k],
             coolant_pressures[i],
             coolant_specific_heat_list[k],
             coolant_rho_list[k],
@@ -1120,12 +1117,14 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             coolant_kin_viscocity_list[k],
             coolant_conductivity_list[k],
             "",
+            channel_ribs[i],
+            channel_widths[i],
+            "",
             hl[k],
             hg[k],
             Twg_list[k],
             Twl_list[k],
             Tc_list[k],
-            coolant_velocity[k],
             "",
             Q_list[k],
             q_heatflux[k],
@@ -1169,8 +1168,10 @@ print_range("Gas temperature", gas_temp, "K")
 print_range("Gas velocity", gas_velocity, "m/s")
 print_range("Regen coolant temperature (all modeled passes)", Tc_list + Tc_2_list, "K")
 print_range(f"Regen coolant velocity max:", coolant_velocity, "m/s")
+print_range(f"Regen coolant channel widths", channel_widths, "m")
+print_range(f"Regen coolant channel ribs", channel_ribs, "m")
 print_range("Coolant-side wall temperature", Twl_list, "K")
-print('Coolant pressure drop', (max(coolant_pressures)-min(coolant_pressures))/100000, 'Bar')
+print('Coolant pressure drop', (Coolant_Inlet_Pressure_PA-coolant_pressures_return[0])/100000, 'Bar')
 print_range("Gas-side wall temperature", Twg_list, "K")
 print_range("Heat flux", q_heatflux, "W/m^2")
 print(f"Sum of segment heat-transfer values: {sum(Q_list):.6g} W")
