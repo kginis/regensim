@@ -51,6 +51,10 @@ Channel_Count = 40
 Channel_Wall = 0.0012
 Channel_Rib = 0.001
 
+# Two Pass Channel Inputs
+Downsteam_Pass_Channels = 20
+Upstream_Pass_Channels = 20
+
 # Variable Width Parameters
 Channel_Width_Injector = 0.004
 Channel_Width_Throat = 0.002
@@ -66,8 +70,9 @@ bartz_coeff=0.75 # 0.75 is based off of making it match (conservativley) with tw
 # =============================================================================
 
 if Variable_Width and Constant_Rib:
-    print("FATAL ERROR: Cannot have both variable channel width and Constant Ribs. Disable one.")
-    exit(6767)
+    raise RuntimeError(
+        "You cannot have both a variable width and constant rib."
+    )
 
 Chamber_Pressure_bar = 35 #this is the initial guess, mdot calculated fr later
 
@@ -305,11 +310,8 @@ def hg_bartz(radius,Cp,mu,Pr,Pc,C_star,Area_Ratio,throat_curvature_radius): #not
 
     return bartz
 
-def hl_RPE(c_cp,c_mdot,c_rho,c_mu,c_conductivity, channelqty, c_velocity,i):
-    if Two_Pass:
-        hl = 0.023*c_cp*(c_mdot/(channel_area[i]*channelqty*0.5))*((hydraulicdiameters[i]*c_velocity*c_rho)/c_mu)**-0.2*((c_mu*c_cp)/c_conductivity)**(-2/3)
-    else:
-        hl = 0.023*c_cp*(c_mdot/(channel_area[i]*channelqty))*((hydraulicdiameters[i]*c_velocity*c_rho)/c_mu)**-0.2*((c_mu*c_cp)/c_conductivity)**(-2/3)
+def hl_RPE(c_cp,c_mdot,c_rho,c_mu,c_conductivity, channelqty, c_velocity):
+    hl = 0.023*c_cp*(c_mdot/(channel_area[i]*channelqty))*((hydraulicdiameters[i]*c_velocity*c_rho)/c_mu)**-0.2*((c_mu*c_cp)/c_conductivity)**(-2/3)
 
     return hl
 #def hl_hezel_huang(coolant):
@@ -829,7 +831,11 @@ coolant_abs_viscocity_list=[]
 coolant_kin_viscocity_list=[]
 coolant_conductivity_list=[]
 
-coolant_temp = Coolant_Inlet_Temp
+initial_temp_guess = Coolant_Inlet_Temp + 50.0
+
+temp_relaxation = 0.8
+temp_tolerance = 0.01
+temp_max_iterations = 100
 
 if Two_Pass:
     startingvalue=1
@@ -842,154 +848,297 @@ thermal_indices = (
     else range(n - 1, 0, -1)
 )
 
-for i in thermal_indices:
-    dx = abs(x_positions[i] - x_positions[i - 1])
-    dr = chamber_radii[i] - chamber_radii[i - 1]
-    ds = math.sqrt(dx**2 + dr**2)
-
-    gas_area = (
-        math.pi
-        * (chamber_radii[i] + chamber_radii[i - 1])
-        * ds
-    )
-    channel_length = ds / math.cos(theta)
-
-
-    wall_area = gas_area  # thin-wall approximation
-
-    Twg_guess = 0.5 * (
-        adiabatic_wall_temp[i] + coolant_temp
-    )
-
-    tolerance = 0.01       # K
-    relaxation = 0.5
-    max_iterations = 150
-
-    for iteration in range(max_iterations):
-        hg_local = (
-            hg_bartz(
-                throat_radius,
-                gas_Cp,
-                gas_viscocity,
-                gas_prandtl,
-                Chamber_Pressure_Pa,
-                Cstar_meters_sec,
-                area_ratios[i],
-                throat_r_D * (2*throat_radius)
-            )
-            * bartz_boundary_sigma(
-                Twg_guess,
-                chamber_temp,
-                gamma,
-                mach_number[i],
-                0.6,
-            )
-            * pdms_modifier
-            * bartz_coeff
-        )
-
-        hl_local = hl_RPE(
-            coolant_specific_heat(
-                coolant_pressures[i], coolant_temp
-            ),
-            Coolant_Mdot,
-            coolant_rho(
-                coolant_pressures[i], coolant_temp
-            ),
-            coolant_abs_viscocity(
-                coolant_pressures[i], coolant_temp
-            ),
-            coolant_conductivity(
-                coolant_pressures[i], coolant_temp
-            ),
-            Channel_Count,
-            coolant_velocity[i],
-            i,
-        )
-
-        #actually good setup
-        m_fin = math.sqrt(
-        2 * hl_local
-        / (Channel_Conductivity * channel_ribs[i])
-        )
-
-        fin_argument = m_fin * Channel_Height
-
-        fin_efficiency = (
-            math.tanh(fin_argument) / fin_argument
-        )
-
-        effective_wetted_perimeter = (
-            channel_widths[i]
-            + 2 * fin_efficiency * Channel_Height
-        )
-
-        coolant_area = (
-            effective_wetted_perimeter
-            * Channel_Count
-            * channel_length
-        )
-
-        R_l = 1.0 / (hl_local * coolant_area)
-
-        R_g = 1.0 / (hg_local * gas_area)
-        R_w = Channel_Wall / (
-            Channel_Conductivity * wall_area
-        )
-        R_l = 1.0 / (hl_local * coolant_area*1)
-
-        Q = (
-            adiabatic_wall_temp[i] - coolant_temp
-        ) / (R_g + R_w + R_l)
-
-        Twg_calculated = (
-            adiabatic_wall_temp[i] - Q * R_g
-        )
-
-        dev = abs(Twg_calculated - Twg_guess)
-
-        if dev < tolerance:
-            Twg = Twg_calculated
-            break
-
-        Twg_guess += relaxation * (
-            Twg_calculated - Twg_guess
-        )
-    else:
-        raise RuntimeError(
-            f"Wall-temperature iteration failed at index {i}"
-        )
-
-    Twl = Twg - Q * R_w
-    if Two_Pass:
-        coolant_temp=coolant_temp+(Q*0.5)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp))
-    else:
-        coolant_temp=coolant_temp+(Q)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp)) 
-
-
-    hg.append(hg_local)
-    hl.append(hl_local)
-
-    coolant_specific_heat_list.append(coolant_specific_heat(coolant_pressures[i],coolant_temp))
-    coolant_rho_list.append(coolant_rho(coolant_pressures[i],coolant_temp))
-    coolant_abs_viscocity_list.append(coolant_abs_viscocity(coolant_pressures[i],coolant_temp))
-    coolant_kin_viscocity_list.append(coolant_kin_viscocity(coolant_pressures[i],coolant_temp))
-    coolant_conductivity_list.append(coolant_conductivity(coolant_pressures[i],coolant_temp))
-
-    Twg_list.append(Twg_calculated)
-    Twl_list.append(Twl)
-    Tc_list.append(coolant_temp)
-
-    Q_list.append(Q)
-    q_heatflux.append(Q/gas_area)
-    coolant_temperature_check = Twl - Q * R_l
-    #print(coolant_sat_temp(coolant_pressures[i]))
-
 if Two_Pass:
-    i=0
-    for i in range(len(area_ratios)-1, 0, startingvalue*-1):
-        coolant_temp=coolant_temp+(Q_list[i-1]*0.5)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures_return[i],coolant_temp))
-        Tc_2_list.append(coolant_temp)
+    channel_count_down=Downsteam_Pass_Channels
+    channel_count_return=Upstream_Pass_Channels
+else:
+    channel_count_down=Channel_Count
+
+for temp_iteration in range(temp_max_iterations):
+
+    coolant_temp = Coolant_Inlet_Temp
+    coolant_temp_return = initial_temp_guess
+
+            
+    hg.clear()
+    hl.clear()
+    Twg_list.clear()
+    Twl_list.clear()
+    Tc_list.clear()
+    Tc_2_list.clear()
+    Q_list.clear()
+    q_heatflux.clear()
+
+    coolant_specific_heat_list.clear()
+    coolant_rho_list.clear()
+    coolant_abs_viscocity_list.clear()
+    coolant_kin_viscocity_list.clear()
+    coolant_conductivity_list.clear()
+
+    
+    for i in thermal_indices:
+        dx = abs(x_positions[i] - x_positions[i - 1])
+        dr = chamber_radii[i] - chamber_radii[i - 1]
+        ds = math.sqrt(dx**2 + dr**2)
+
+
+        gas_area = (
+            math.pi
+            * (chamber_radii[i] + chamber_radii[i - 1])
+            * ds
+        )
+        channel_length = ds / math.cos(theta)
+
+
+        wall_area = gas_area  # thin-wall approximation
+
+        Twg_guess = 0.5 * (
+            adiabatic_wall_temp[i] + coolant_temp
+        )
+
+        tolerance = 0.01       # K
+        relaxation = 0.5
+        max_iterations = 150
+
+        for iteration in range(max_iterations):
+            hg_local = (
+                hg_bartz(
+                    throat_radius,
+                    gas_Cp,
+                    gas_viscocity,
+                    gas_prandtl,
+                    Chamber_Pressure_Pa,
+                    Cstar_meters_sec,
+                    area_ratios[i],
+                    throat_r_D * (2*throat_radius)
+                )
+                * bartz_boundary_sigma(
+                    Twg_guess,
+                    chamber_temp,
+                    gamma,
+                    mach_number[i],
+                    0.6,
+                )
+                * pdms_modifier
+                * bartz_coeff
+            )
+
+            hl_local = hl_RPE(
+                coolant_specific_heat(
+                    coolant_pressures[i], coolant_temp
+                ),
+                Coolant_Mdot,
+                coolant_rho(
+                    coolant_pressures[i], coolant_temp
+                ),
+                coolant_abs_viscocity(
+                    coolant_pressures[i], coolant_temp
+                ),
+                coolant_conductivity(
+                    coolant_pressures[i], coolant_temp
+                ),
+                channel_count_down,
+                coolant_velocity[i],
+            )
+            if Two_Pass:
+                hl_local_return = hl_RPE(
+                    coolant_specific_heat(
+                        coolant_pressures_return[i], coolant_temp_return
+                    ),
+                    Coolant_Mdot,
+                    coolant_rho(
+                        coolant_pressures_return[i], coolant_temp_return
+                    ),
+                    coolant_abs_viscocity(
+                        coolant_pressures_return[i], coolant_temp_return
+                    ),
+                    coolant_conductivity(
+                        coolant_pressures_return[i], coolant_temp_return
+                    ),
+                    channel_count_return,
+                    coolant_velocity[i]
+                )
+
+            #actually good setup
+            m_fin = math.sqrt(
+                2 * hl_local
+                / (
+                    Channel_Conductivity
+                    * channel_ribs[i]
+                )
+            )
+
+            fin_argument = m_fin * Channel_Height
+
+            fin_efficiency = (
+                math.tanh(fin_argument) / fin_argument
+                if fin_argument > 1e-12
+                else 1.0
+            )
+
+            effective_wetted_perimeter = (
+                channel_widths[i]
+                + 2 * fin_efficiency * Channel_Height
+            )
+
+
+            m_fin_return = math.sqrt(
+                2 * hl_local_return
+                / (
+                    Channel_Conductivity
+                    * channel_ribs[i]
+                )
+            )
+
+            fin_argument_return = (
+                m_fin_return * Channel_Height
+            )
+
+            fin_efficiency_return = (
+                math.tanh(fin_argument_return)
+                / fin_argument_return
+                if fin_argument_return > 1e-12
+                else 1.0
+            )
+
+            effective_wetted_perimeter_return = (
+                channel_widths[i]
+                + 2
+                * fin_efficiency_return
+                * Channel_Height
+            )
+
+            coolant_area = (
+                effective_wetted_perimeter
+                * channel_count_down
+                * channel_length
+            )
+            coolant_area_return = (
+                effective_wetted_perimeter_return
+                * channel_count_return
+                * channel_length
+            )
+
+            conductance_down = (
+                hl_local * coolant_area
+            )
+
+            conductance_return = (
+                hl_local_return * coolant_area_return
+            )
+
+            conductance_total = (
+                conductance_down + conductance_return
+            )
+
+            R_l = 1.0 / conductance_total
+
+            coolant_temp_effective = (
+                conductance_down * coolant_temp
+                + conductance_return * coolant_temp_return
+            ) / conductance_total
+
+            R_g = 1.0 / (hg_local * gas_area)
+            R_w = Channel_Wall / (
+                Channel_Conductivity * wall_area
+            )
+
+            Q = (
+                adiabatic_wall_temp[i] - coolant_temp_effective
+            ) / (R_g + R_w + R_l)
+
+            Twg_calculated = (
+                adiabatic_wall_temp[i] - Q * R_g
+            )
+
+            dev = abs(Twg_calculated - Twg_guess)
+
+            if dev < tolerance:
+                Twg = Twg_calculated
+                break
+
+            Twg_guess += relaxation * (
+                Twg_calculated - Twg_guess
+            )
+        else:
+            raise RuntimeError(
+                f"Wall-temperature iteration failed at index {i}"
+            )
+
+        Twl = Twg - Q * R_w
+
+        Q_pass_1 = hl_local * coolant_area * (Twl - coolant_temp)
+        Q_pass_2 = hl_local_return * coolant_area_return * (Twl - coolant_temp_return)
+
+        fraction_pass_1 = Q_pass_1 / Q
+        fraction_pass_2 = Q_pass_2 / Q
+        coolant_temp_return=coolant_temp_return-(Q_pass_2)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures_return[i],coolant_temp_return))
+        coolant_temp=coolant_temp+(Q_pass_1)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp)) 
+
+        if not math.isclose(
+            Q_pass_1 + Q_pass_2,
+            Q,
+            rel_tol=1e-6,
+            abs_tol=1e-6,
+        ):
+            raise RuntimeError(
+                f"Heat balance failed at station {i}: "
+                f"Q={Q}, "
+                f"Q_pass_1+Q_pass_2="
+                f"{Q_pass_1 + Q_pass_2}"
+            )
+
+        hg.append(hg_local)
+        hl.append(hl_local)
+
+        coolant_specific_heat_list.append(coolant_specific_heat(coolant_pressures[i],coolant_temp))
+        coolant_rho_list.append(coolant_rho(coolant_pressures[i],coolant_temp))
+        coolant_abs_viscocity_list.append(coolant_abs_viscocity(coolant_pressures[i],coolant_temp))
+        coolant_kin_viscocity_list.append(coolant_kin_viscocity(coolant_pressures[i],coolant_temp))
+        coolant_conductivity_list.append(coolant_conductivity(coolant_pressures[i],coolant_temp))
+
+        Twg_list.append(Twg_calculated)
+        Twl_list.append(Twl)
+        Tc_list.append(coolant_temp)
+        Tc_2_list.append(coolant_temp_return)
+
+        Q_list.append(Q)
+        q_heatflux.append(Q/gas_area)
+        coolant_temperature_check = Twl - Q * R_l
+        #print(coolant_sat_temp(coolant_pressures[i]))
+        
+    if not Two_Pass:
+        break
+
+    down_manifold_temp = Tc_list[-1]
+    return_manifold_temp = Tc_2_list[-1]
+
+    error = (
+        down_manifold_temp
+        - return_manifold_temp
+    )
+
+    dev = abs(error)
+
+    print(
+        f"iteration={temp_iteration}, "
+        f"initial_temp_guess={initial_temp_guess:.3f} K, "
+        f"down_manifold_temp={down_manifold_temp:.3f} K, "
+        f"return_manifold_temp={return_manifold_temp:.3f} K, "
+        f"error={error:.3f} K"
+    )
+
+    if dev < temp_tolerance:
+        break
+
+    initial_temp_guess += (
+        temp_relaxation * error
+    )
+
+else:
+    raise RuntimeError(
+        "Two-pass temperature calculation did not converge"
+    )
 
 Exit_Pressure=gas_temp[-1]
 Exit_Area=math.pi*chamber_radii[-1]**2
@@ -1039,6 +1188,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
     writer.writerow([])
     writer.writerow(["Film summary", "Value", "Unit"])
     writer.writerow(["Film cooling status", "Enabled" if Film_Cooling else "Disabled", "-"])
+
     if Film_Cooling:
         for label, (value, unit) in film_summary.items():
             writer.writerow([label, value, unit])
