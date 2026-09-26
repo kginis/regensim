@@ -831,7 +831,7 @@ coolant_abs_viscocity_list=[]
 coolant_kin_viscocity_list=[]
 coolant_conductivity_list=[]
 
-initial_temp_guess = Coolant_Inlet_Temp + 50.0
+initial_temp_guess = Coolant_Inlet_Temp + 80
 
 temp_relaxation = 0.8
 temp_tolerance = 0.01
@@ -980,51 +980,53 @@ for temp_iteration in range(temp_max_iterations):
                 channel_widths[i]
                 + 2 * fin_efficiency * Channel_Height
             )
-
-
-            m_fin_return = math.sqrt(
-                2 * hl_local_return
-                / (
-                    Channel_Conductivity
-                    * channel_ribs[i]
+            if Two_Pass:
+                m_fin_return = math.sqrt(
+                    2 * hl_local_return
+                    / (
+                        Channel_Conductivity
+                        * channel_ribs[i]
+                    )
                 )
-            )
 
-            fin_argument_return = (
-                m_fin_return * Channel_Height
-            )
+                fin_argument_return = (
+                    m_fin_return * Channel_Height
+                )
 
-            fin_efficiency_return = (
-                math.tanh(fin_argument_return)
-                / fin_argument_return
-                if fin_argument_return > 1e-12
-                else 1.0
-            )
+                fin_efficiency_return = (
+                    math.tanh(fin_argument_return)
+                    / fin_argument_return
+                    if fin_argument_return > 1e-12
+                    else 1.0
+                )
 
-            effective_wetted_perimeter_return = (
-                channel_widths[i]
-                + 2
-                * fin_efficiency_return
-                * Channel_Height
-            )
+                effective_wetted_perimeter_return = (
+                    channel_widths[i]
+                    + 2
+                    * fin_efficiency_return
+                    * Channel_Height
+                )
+                coolant_area_return = (
+                    effective_wetted_perimeter_return
+                    * channel_count_return
+                    * channel_length
+                )
+                conductance_return = (
+                    hl_local_return * coolant_area_return
+                )
+            else:
+                conductance_return = 0
+                coolant_area_return = 0
 
             coolant_area = (
                 effective_wetted_perimeter
                 * channel_count_down
                 * channel_length
             )
-            coolant_area_return = (
-                effective_wetted_perimeter_return
-                * channel_count_return
-                * channel_length
-            )
+            
 
             conductance_down = (
                 hl_local * coolant_area
-            )
-
-            conductance_return = (
-                hl_local_return * coolant_area_return
             )
 
             conductance_total = (
@@ -1068,7 +1070,10 @@ for temp_iteration in range(temp_max_iterations):
         Twl = Twg - Q * R_w
 
         Q_pass_1 = hl_local * coolant_area * (Twl - coolant_temp)
-        Q_pass_2 = hl_local_return * coolant_area_return * (Twl - coolant_temp_return)
+        if Two_Pass:
+            Q_pass_2 = hl_local_return * coolant_area_return * (Twl - coolant_temp_return)
+        else:
+            Q_pass_2 = 0
 
         fraction_pass_1 = Q_pass_1 / Q
         fraction_pass_2 = Q_pass_2 / Q
