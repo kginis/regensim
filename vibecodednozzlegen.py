@@ -12,40 +12,33 @@ from pathlib import Path
 # =============================================================================
 # USER-EDITABLE INPUTS
 # =============================================================================
-
 OUTPUT_FILENAME = "nozzle.csv"
 
 # Primary sizing
-THROAT_RADIUS_M = 0.015
-CONTRACTION_RATIO = 6.0       # chamber area / throat area
-EXPANSION_RATIO = 4.0     # exit area / throat area
-L_STAR_M = 0.5            # characteristic chamber length: Vc / At
-
-# Set to a number to specify chamber radius directly. Leave as None to derive
-# it from CONTRACTION_RATIO.
+THROAT_RADIUS_M = 0.018
+CONTRACTION_RATIO = 6.0
+EXPANSION_RATIO = 4.5
+L_STAR_M = 0.65
 CHAMBER_RADIUS_M = None
 
 # Chamber and converging section
 CONVERGING_HALF_ANGLE_DEG = 35.0
-CHAMBER_FILLET_RADIUS_M = 0.01
-UPSTREAM_THROAT_FILLET_RT = 1.5   # fillet radius / throat radius
+CHAMBER_FILLET_RADIUS_M = 0.025
+UPSTREAM_THROAT_FILLET_RT = 1.5
 
-# Rao-style bell diverging section
-DOWNSTREAM_THROAT_FILLET_RT = 0.45
+# 100% length Rao-style bell approximation
+DOWNSTREAM_THROAT_FILLET_RT = 0.382
+BELL_LENGTH_FRACTION = 1.00
+BELL_INITIAL_ANGLE_DEG = 30.0
+BELL_EXIT_ANGLE_DEG = 10.0
 
-# Bell length is relative to an equivalent 15-degree conical nozzle.
-BELL_LENGTH_FRACTION = 1.0
-BELL_INITIAL_ANGLE_DEG = 30
-BELL_EXIT_ANGLE_DEG = 5
-
-# Output resolution for each section
-CHAMBER_POINTS = 75
+# Output resolution
+CHAMBER_POINTS = 40
 CHAMBER_FILLET_POINTS = 20
 CONVERGING_POINTS = 40
 UPSTREAM_THROAT_FILLET_POINTS = 30
-DOWNSTREAM_THROAT_FILLET_POINTS = 45
-DIVERGING_POINTS = 100
-
+DOWNSTREAM_THROAT_FILLET_POINTS = 30
+DIVERGING_POINTS = 70
 
 # =============================================================================
 # GEOMETRY HELPERS
