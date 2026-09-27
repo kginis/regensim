@@ -24,9 +24,9 @@ from pathlib import Path
 # User inputs
 OUTPUT_FILENAME = "nozzle.csv"
 THROAT_RADIUS_M = 0.020
-CONTRACTION_RATIO = 5.5
+CONTRACTION_RATIO = 5.0
 EXPANSION_RATIO = 4.0  # Set as low as 2.0 for a labeled extrapolation.
-L_STAR_M = 0.5
+L_STAR_M = 0.6
 CHAMBER_RADIUS_M = None
 
 CONVERGING_HALF_ANGLE_DEG = 25.0

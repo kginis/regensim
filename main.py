@@ -22,7 +22,7 @@ Cstar_efficiency = 1.00
 
 # Chamber Inputs
 throat_r_D = 1.5
-chamber_diameter = 0.036 * 2  # m
+chamber_diameter = 0.047 * 2  # m
 total_mdot = 2.25
 
 # CEA Inputs
@@ -32,8 +32,8 @@ Expansion_Ratio = 4.5
 # Cooling Settings
 Two_Pass = True   
 generatrix_angle = 0  # degrees
-Constant_Rib = True
-Variable_Width = False
+Constant_Rib = False
+Variable_Width = True
 Film_Cooling = False
 
 # Cooling Inputs
@@ -49,20 +49,20 @@ Channel_Conductivity = 160
 
 # Channel Inputs
 Channel_Width = 0.0012
-Channel_Height = 0.0012
-Channel_Count = 52
+Channel_Height = 0.0014
+Channel_Count = 48
 Channel_Wall = 0.0008
 Channel_Rib = 0.0014
 
 # Two Pass Channel Inputs
-Downsteam_Pass_Channels = 26
-Upstream_Pass_Channels = 26
+Downsteam_Pass_Channels = 24
+Upstream_Pass_Channels = 24
 pass_start_location=0.000 #measured from the top of the chamber downwards 
 
 # Variable Width Parameters
-Channel_Width_Injector = 0.004
-Channel_Width_Throat = 0.002
-Channel_Width_Manifold = 0.003
+Channel_Width_Injector = 0.0032
+Channel_Width_Throat = 0.0012
+Channel_Width_Manifold = 0.0032
 
 # Modifiers
 x_pdms = 0.0                 
@@ -116,7 +116,6 @@ fuel_blend_name = f"IPA_PDMS_{x_pdms:g}wt"
 add_new_fuel(fuel_blend_name, fuel_blend_card)
 
 from rocketcea.cea_obj import add_new_fuel, add_new_oxidizer
-
 N2O_L_CARD = """
 oxid N2O(L)  N 2 O 1  wt%=100.0
 h,cal=19721.03  t(k)=298.15
@@ -854,6 +853,7 @@ coolant_pressures = (
 )
 
 hl=[]
+hl_return=[]
 hg=[]
 Twg_list=[]
 Twl_list=[]
@@ -1134,6 +1134,8 @@ for temp_iteration in range(temp_max_iterations):
 
         hg.append(hg_local)
         hl.append(hl_local)
+        hl_return.append(hl_local_return)
+
 
         coolant_specific_heat_list.append(coolant_specific_heat(coolant_pressures[i],coolant_temp))
         coolant_rho_list.append(coolant_rho(coolant_pressures[i],coolant_temp))
@@ -1419,6 +1421,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
         "Channel Rib Width (m)",
         "Channel Width (m)",
         "Coolant-Side Heat Transfer Coefficient (W/m^2-K)",
+        "Coolant-Side Heat Transfer Coefficient, Pass 2 (W/m^2-K)"
         "Gas-Side Heat Transfer Coefficient (W/m^2-K)",
         "Gas-Side Wall Temperature (K)",
         "Coolant-Side Wall Temperature (K)",
@@ -1467,6 +1470,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             channel_ribs[i],
             channel_widths[i],
             hl[k],
+            hl_return[k],
             hg[k],
             Twg_list[k],
             Twl_list[k],
