@@ -1,12 +1,15 @@
 import math
 import csv
 import time
+from time import perf_counter
 import datetime
 from pathlib import Path
 from pyfluids import Fluid, FluidsList, Input
 from rocketcea.cea_obj import add_new_fuel
 from rocketcea.cea_obj_w_units import CEA_Obj
 from rocketcea.units import add_user_units
+
+start_time = perf_counter()
 
 # =============================================================================
 # USER-EDITABLE INPUTS
@@ -19,16 +22,16 @@ Cstar_efficiency = 1.00
 
 # Chamber Inputs
 throat_r_D = 1.5
-chamber_diameter = 0.0441 * 2  # m
-total_mdot = 2.0
+chamber_diameter = 0.036 * 2  # m
+total_mdot = 2.25
 
 # CEA Inputs
 Mass_Ratio = 2.0
 Expansion_Ratio = 4.5
 
 # Cooling Settings
-Two_Pass = True
-generatrix_angle = 30  # degrees
+Two_Pass = True   
+generatrix_angle = 0  # degrees
 Constant_Rib = True
 Variable_Width = False
 Film_Cooling = False
@@ -38,22 +41,22 @@ Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025
 Coolant_Mdot = total_mdot / (1 + Mass_Ratio) 
-Film_Mdot = Coolant_Mdot * 0.2                 
+Film_Mdot = Coolant_Mdot * 0.33            
 Film_Inlet_Temp = 383
 Coolant_Inlet_Temp = 298.15
-Coolant_Inlet_Pressure_Bar = 30
-Channel_Conductivity = 330
+Coolant_Inlet_Pressure_Bar = 45
+Channel_Conductivity = 160
 
 # Channel Inputs
 Channel_Width = 0.0012
-Channel_Height = 0.00125
-Channel_Count = 40
-Channel_Wall = 0.0012
-Channel_Rib = 0.001
+Channel_Height = 0.0012
+Channel_Count = 52
+Channel_Wall = 0.0008
+Channel_Rib = 0.0014
 
 # Two Pass Channel Inputs
-Downsteam_Pass_Channels = 20
-Upstream_Pass_Channels = 20
+Downsteam_Pass_Channels = 26
+Upstream_Pass_Channels = 26
 
 # Variable Width Parameters
 Channel_Width_Injector = 0.004
@@ -61,18 +64,27 @@ Channel_Width_Throat = 0.002
 Channel_Width_Manifold = 0.003
 
 # Modifiers
-x_pdms = 0.00                   
-pdms_modifier = 1.0 # 1% = .85, 0% = 1.00   
-bartz_coeff=0.75 # 0.75 is based off of making it match (conservativley) with two R2S datapoints: LURA & Bristol SEDS. Seems to be within a reasonable range ish for that and will be tuned better when I fire this thing!!
+x_pdms = 0.0                 
+pdms_modifier = 1.0 # 1% = .85, 0% = 1.00, some R2S CDRs show people doing 0.75 for 1%
+performance_modifier=1.0
+bartz_coeff=0.85 # 0.75 the value I got based off of making it match (conservativley) with two R2S datapoints: LURA & Bristol SEDS. Seems to be within a reasonable range ish for that and will be tuned better when I fire this thing!!
+#but i would like to use 0.85 just based off of vibes
 
 # =============================================================================
 # END USER-EDITABLE INPUTS
 # =============================================================================
 
+generic_modifer =  pdms_modifier*performance_modifier
+
 if Variable_Width and Constant_Rib:
-    raise RuntimeError(
+    raise ValueError(
         "You cannot have both a variable width and constant rib."
     )
+if not Downsteam_Pass_Channels+Upstream_Pass_Channels==Channel_Count and Two_Pass:
+    raise ValueError(
+            "total channel count must be consistent"
+    )
+
 
 Chamber_Pressure_bar = 35 #this is the initial guess, mdot calculated fr later
 
@@ -170,17 +182,17 @@ while dev > 0.01:
     gas_enthalpy = ispObj.get_Chamber_H(Pc=Chamber_Pressure_bar, MR=Mass_Ratio, eps=Expansion_Ratio)
 
     #Cstar
-    Cstar_meters_sec = (ispObj.get_Cstar(Pc=Chamber_Pressure_bar, MR=Mass_Ratio))
-    #print(Cstar_meters_sec)
+    cstar_actual = (ispObj.get_Cstar(Pc=Chamber_Pressure_bar, MR=Mass_Ratio))
+    cstar_actual = cstar_actual*Cstar_efficiency
 
     #Temps: Chamber, Nozzle, Exit
     temperatures = ispObj.get_Temperatures(Pc=Chamber_Pressure_bar, MR=Mass_Ratio)
-    chamber_temp = Cstar_efficiency*(temperatures[0]) #in kelvin
+    chamber_temp = (temperatures[0]) #in kelvin
 
     #Chamber Rho
     chamber_rho = ispObj.get_Chamber_Density(Pc=Chamber_Pressure_bar, MR = Mass_Ratio)
 
-    chamber_pressure_true_PA = (Cstar_meters_sec*total_mdot)/throat_area
+    chamber_pressure_true_PA = (cstar_actual*total_mdot)/throat_area
     dev = abs(chamber_pressure_true_PA - Chamber_Pressure_Pa)    
     Chamber_Pressure_Pa=chamber_pressure_true_PA
     Chamber_Pressure_bar=Chamber_Pressure_Pa/100000
@@ -679,10 +691,16 @@ if Film_Cooling:
                     gas_viscocity,
                     gas_prandtl,
                     Chamber_Pressure_Pa,
-                    Cstar_meters_sec,
+                    cstar_actual,
                     area_ratios[1],
                     throat_r_D * (2*throat_radius)
-                )
+                )* bartz_boundary_sigma(
+                        adiabatic_wall_temp[1],
+                        chamber_temp,
+                        gamma,
+                        mach_number[1],                                
+                        0.6,
+                        )
     )
     f_len=film_liquid_length(hg_1,gas_velocity[1],mach_number[1]) 
     f_liquid_len=f_len[0]
@@ -908,7 +926,7 @@ for temp_iteration in range(temp_max_iterations):
                     gas_viscocity,
                     gas_prandtl,
                     Chamber_Pressure_Pa,
-                    Cstar_meters_sec,
+                    cstar_actual,
                     area_ratios[i],
                     throat_r_D * (2*throat_radius)
                 )
@@ -919,7 +937,6 @@ for temp_iteration in range(temp_max_iterations):
                     mach_number[i],
                     0.6,
                 )
-                * pdms_modifier
                 * bartz_coeff
             )
 
@@ -1045,12 +1062,15 @@ for temp_iteration in range(temp_max_iterations):
                 Channel_Conductivity * wall_area
             )
 
-            Q = (
-                adiabatic_wall_temp[i] - coolant_temp_effective
-            ) / (R_g + R_w + R_l)
+            R_base = R_g + R_w + R_l
+            R_pdms_effective = R_base * (1.0 / generic_modifer - 1.0)
 
-            Twg_calculated = (
-                adiabatic_wall_temp[i] - Q * R_g
+            Q = (adiabatic_wall_temp[i] - coolant_temp_effective) / (
+                R_base + R_pdms_effective
+            )
+
+            Twg_calculated = adiabatic_wall_temp[i] - Q * (
+                R_g + R_pdms_effective
             )
 
             dev = abs(Twg_calculated - Twg_guess)
@@ -1071,7 +1091,7 @@ for temp_iteration in range(temp_max_iterations):
 
         Q_pass_1 = hl_local * coolant_area * (Twl - coolant_temp)
         if Two_Pass:
-            Q_pass_2 = hl_local_return * coolant_area_return * (Twl - coolant_temp_return)
+            Q_pass_2 = hl_local_return * coolant_area_return * (Twl - coolant_temp_return) 
         else:
             Q_pass_2 = 0
 
@@ -1079,6 +1099,8 @@ for temp_iteration in range(temp_max_iterations):
         fraction_pass_2 = Q_pass_2 / Q
         coolant_temp_return=coolant_temp_return-(Q_pass_2)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures_return[i],coolant_temp_return))
         coolant_temp=coolant_temp+(Q_pass_1)/(Coolant_Mdot*coolant_specific_heat(coolant_pressures[i],coolant_temp)) 
+
+        
 
         if not math.isclose(
             Q_pass_1 + Q_pass_2,
@@ -1145,7 +1167,7 @@ else:
         "Two-pass temperature calculation did not converge"
     )
 
-Exit_Pressure=gas_temp[-1]
+Exit_Pressure=chamber_pressure[-1]
 Exit_Area=math.pi*chamber_radii[-1]**2
 Exit_Velocity=gas_velocity[-1]
 
@@ -1274,12 +1296,12 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             "",
             channel_ribs[i],
             channel_widths[i],
-            "",
             hl[k],
             hg[k],
             Twg_list[k],
             Twl_list[k],
             Tc_list[k],
+            coolant_velocity[k],
             "",
             Q_list[k],
             q_heatflux[k],
@@ -1314,7 +1336,8 @@ print("\nPerformance Results")
 print("Chamber Pressure:", Chamber_Pressure_bar,'bar')
 print("Thrust:", Thrust,'N')
 print("Gamma:", gamma)
-print("C star:", Cstar_meters_sec)
+print("C star:", cstar_actual)
+print("Exit Pressure:", chamber_pressure[-1], "Pa")
 
 print("\nThermal results")
 print_range("Effective adiabatic wall temperature", adiabatic_wall_temp, "K")
@@ -1322,6 +1345,10 @@ print_range("Uncooled adiabatic wall temperature", uncooled_adiabatic_wall_temp,
 print_range("Gas temperature", gas_temp, "K")
 print_range("Gas velocity", gas_velocity, "m/s")
 print_range("Regen coolant temperature (all modeled passes)", Tc_list + Tc_2_list, "K")
+coolant_outlet_temp = max(Tc_list[-1],Tc_2_list[-1])   # single-pass flow order
+deltaT = coolant_outlet_temp - Coolant_Inlet_Temp
+print(f"Regen Coolant Delta T: {deltaT:.3f} K")
+print(f"Total heat absorbed: {sum(Q_list):.1f} W")
 print_range(f"Regen coolant velocity max:", coolant_velocity, "m/s")
 print_range(f"Regen coolant channel widths", channel_widths, "m")
 print_range(f"Regen coolant channel ribs", channel_ribs, "m")
@@ -1343,4 +1370,7 @@ if Film_Cooling:
     print_range("Gas-film mixing fraction eta", [d["eta"] for d in film_station_data if "eta" in d], "")
     print_range("Film Taw reduction (uncooled minus effective)", [a - b for a, b in zip(uncooled_adiabatic_wall_temp, adiabatic_wall_temp)], "K")
     print("Gas-film Cp basis: saturated-liquid Cp (current model)")
-#to be completley transparent chatgpt rewrote the csv writer and helped debug the film cooling code but otherwise nothing else :)))
+    print("")
+
+elapsed = perf_counter() - start_time
+print(f"Run completed in {elapsed:.2f} seconds")
