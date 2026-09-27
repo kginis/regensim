@@ -24,16 +24,16 @@ from pathlib import Path
 # User inputs
 OUTPUT_FILENAME = "nozzle.csv"
 THROAT_RADIUS_M = 0.020
-CONTRACTION_RATIO = 5.0
+CONTRACTION_RATIO = 4.5
 EXPANSION_RATIO = 4.0  # Set as low as 2.0 for a labeled extrapolation.
-L_STAR_M = 0.6
+L_STAR_M = 0.5
 CHAMBER_RADIUS_M = None
 
-CONVERGING_HALF_ANGLE_DEG = 25.0
+CONVERGING_HALF_ANGLE_DEG = 35.0
 CHAMBER_FILLET_RADIUS_M = 0.045
 UPSTREAM_THROAT_FILLET_RT = 1.5
 DOWNSTREAM_THROAT_FILLET_RT = 0.382
-BELL_LENGTH_FRACTION = 1.0
+BELL_LENGTH_FRACTION = 0.80
 
 # Approximate digitization of NASA SP-125 figure 4-14. Each row holds
 # (expansion ratio, theta_N in degrees, theta_E in degrees). The published chart

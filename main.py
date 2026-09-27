@@ -50,6 +50,7 @@ Channel_Conductivity = 160
 # Channel Inputs
 Channel_Width = 0.0012
 Channel_Height = 0.0014
+Constant_Rib_Len = 0.08
 Channel_Count = 48
 Channel_Wall = 0.0008
 Channel_Rib = 0.0014
@@ -60,9 +61,9 @@ Upstream_Pass_Channels = 24
 pass_start_location=0.000 #measured from the top of the chamber downwards 
 
 # Variable Width Parameters
-Channel_Width_Injector = 0.0032
+Channel_Width_Injector = 0.0028
 Channel_Width_Throat = 0.0012
-Channel_Width_Manifold = 0.0032
+Channel_Width_Manifold = 0.0024
 
 # Modifiers
 x_pdms = 0.0                 
@@ -585,6 +586,15 @@ for radius in nozzlegeoemtry:
 
         except ValueError:
             continue
+
+minimum = None
+for i in range(len(x_positions)):
+        x_displacement=x_positions[i]-x_positions[0]
+        value=abs(x_displacement-Constant_Rib_Len)
+        if minimum == None or value<minimum:
+            minimum=value
+            constant_rib_end_station=i
+
 hydraulicdiameters=[]
 hydraulicperimiters=[]
 hydraulicradii=[]
@@ -600,8 +610,11 @@ for i in range(len(area_ratios)):
         channel_widths.append(local_channel_width)
         channel_ribs.append(Channel_Rib)
     elif Variable_Width:
-        if x_positions[i]<=0:
-            fraction = (x_positions[i] - x_positions[0]) / -x_positions[0]
+        if x_positions[i]<x_positions[constant_rib_end_station]:
+            local_channel_width=(Channel_Width_Injector)
+            local_channel_rib=((2*float(chamber_radii[i])*math.pi)/Channel_Count)-local_channel_width
+        elif x_positions[i]<=0:
+            fraction = (x_positions[i] - x_positions[constant_rib_end_station]) / -x_positions[constant_rib_end_station]
             local_channel_width=(Channel_Width_Injector+(Channel_Width_Throat-Channel_Width_Injector)*fraction)
             local_channel_rib=((2*float(chamber_radii[i])*math.pi)/Channel_Count)-local_channel_width
         else:
@@ -1426,6 +1439,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
         "Gas-Side Wall Temperature (K)",
         "Coolant-Side Wall Temperature (K)",
         "Coolant Temperature (K)",
+        "Coolant Temprature, Pass 2 (K)"
         "",
         "Heat Transferred (W)",
         "Heat Flux (W/m^2)",
@@ -1475,6 +1489,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             Twg_list[k],
             Twl_list[k],
             Tc_list[k],
+            Tc_2_list[k],
             "",
             Q_list[k],
             q_heatflux[k],

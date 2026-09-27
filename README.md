@@ -8,4 +8,5 @@ Headless 1d thermal model for analysis of regenerative engines, designed for Nit
 - With a .csv input for nozzle geometry and propellant inputs, calculates isentropic flow properties throughout the nozzle
 - Calculates temperature in the chamber, on the chamber wall, on the coolant wall, and in the coolant channels, and coolant velocity
 - Film cooling analysis, but no real-world correlation for it, so it should not be trusted without skepticism
+- Two-pass cooling :D
 
