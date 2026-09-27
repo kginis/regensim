@@ -57,6 +57,7 @@ Channel_Rib = 0.0014
 # Two Pass Channel Inputs
 Downsteam_Pass_Channels = 26
 Upstream_Pass_Channels = 26
+pass_start_location=0.000 #measured from the top of the chamber downwards 
 
 # Variable Width Parameters
 Channel_Width_Injector = 0.004
@@ -730,6 +731,7 @@ if Film_Cooling:
 #coolant velocity math
 #assuming constant density for this, b/c lazy
 coolant_velocity=[]
+coolant_velocity_downstream=[]
 coolant_pressures=[]
 friction_factors=[]
 
@@ -767,12 +769,26 @@ for i in range(len(channel_area)):
         f = f_new
     friction_factors.append(f)
     if Two_Pass:
-        coolant_velocity_local=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*channel_area[i]*Channel_Count*0.5)  #m/s
+        coolant_velocity_local=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*channel_area[i]*Upstream_Pass_Channels)
+        coolant_velocity_local_down=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*channel_area[i]*Downsteam_Pass_Channels) 
+        coolant_velocity_downstream.append(coolant_velocity_local_down)
     else:
         coolant_velocity_local=Coolant_Mdot/(coolant_rho(Coolant_Inlet_Pressure_PA,Coolant_Inlet_Temp)*channel_area[i]*Channel_Count)  #m/s
     coolant_velocity.append(coolant_velocity_local)
 
 
+minimum = None
+for i in range(len(x_positions)):
+        x_displacement=x_positions[i]-x_positions[0]
+        value=abs(x_displacement-pass_start_location)
+        if minimum == None or value<minimum:
+            minimum=value
+            pass_start_station=i
+
+if x_positions[-1]-x_positions[0] <= pass_start_location:
+    raise ValueError(
+        "pass start location is larger than total nozzle length"
+    )
 
 first_pass_dist=0
 second_pass_dist=0
@@ -788,7 +804,7 @@ rho_in = coolant_rho(
 theta = math.radians(generatrix_angle)
 
 
-def calculate_pass_pressures(stations, inlet_pressure):
+def calculate_pass_pressures(stations, inlet_pressure,coolantvelocity):
     pressures = [None] * n
     previous = stations[0]
     pressures[previous] = inlet_pressure
@@ -798,8 +814,8 @@ def calculate_pass_pressures(stations, inlet_pressure):
 
         f = 0.5 * (friction_factors[previous] + friction_factors[i])
         dh = 0.5 * (hydraulicdiameters[previous] + hydraulicdiameters[i])
-        velocity = 0.5 * (coolant_velocity[previous] + coolant_velocity[i])
-
+        velocity = 0.5 * (coolantvelocity[previous] + coolantvelocity[i])
+        
         dp = f * (segment_length / dh) * (rho_in * velocity**2 / 2)
         pressures[i] = pressures[previous] - dp
         previous = i
@@ -808,10 +824,11 @@ def calculate_pass_pressures(stations, inlet_pressure):
 
 
 if Two_Pass:
-    # Chamber top → nozzle exit
+    # Chamber top -> nozzle exit
     coolant_pressures_first = calculate_pass_pressures(
-        list(range(n)),
+        list(range(pass_start_station, n)),
         Coolant_Inlet_Pressure_PA,
+        coolant_velocity_downstream
     )
 
     # Return pass begins at the first pass's outlet pressure.
@@ -822,10 +839,11 @@ else:
     return_inlet_pressure = Coolant_Inlet_Pressure_PA
 
 
-# Nozzle exit → chamber top
+# Nozzle exit -> chamber top
 coolant_pressures_return = calculate_pass_pressures(
     list(range(n - 1, -1, -1)),
     return_inlet_pressure,
+    coolant_velocity
 )
 
 # Pressure array used by your main thermal loop.
@@ -855,13 +873,13 @@ temp_relaxation = 0.8
 temp_tolerance = 0.01
 temp_max_iterations = 100
 
-if Two_Pass:
-    startingvalue=1
+if Two_Pass: 
+    startingvalue=pass_start_station
 else:
     startingvalue=-1
     
 thermal_indices = (
-    range(1, n)
+    range(pass_start_station + 1, n)
     if Two_Pass
     else range(n - 1, 0, -1)
 )
@@ -892,7 +910,6 @@ for temp_iteration in range(temp_max_iterations):
     coolant_abs_viscocity_list.clear()
     coolant_kin_viscocity_list.clear()
     coolant_conductivity_list.clear()
-
     
     for i in thermal_indices:
         dx = abs(x_positions[i] - x_positions[i - 1])
@@ -973,7 +990,7 @@ for temp_iteration in range(temp_max_iterations):
                         coolant_pressures_return[i], coolant_temp_return
                     ),
                     channel_count_return,
-                    coolant_velocity[i]
+                    coolant_velocity_downstream[i]
                 )
 
             #actually good setup
@@ -1161,11 +1178,166 @@ for temp_iteration in range(temp_max_iterations):
     initial_temp_guess += (
         temp_relaxation * error
     )
-
+    coolant_outlet_temp=initial_temp_guess
 else:
     raise RuntimeError(
         "Two-pass temperature calculation did not converge"
     )
+
+thermal_indices = list(thermal_indices)
+coolant_pressures = coolant_pressures.copy()
+
+if Two_Pass: 
+    coolant_temp_return = initial_temp_guess
+
+    for i in range(pass_start_station, 0, -1):
+        # Segment runs from station i to station i - 1.
+        dx = abs(x_positions[i] - x_positions[i - 1])
+        dr = chamber_radii[i] - chamber_radii[i - 1]
+        ds = math.sqrt(dx**2 + dr**2)
+
+        gas_area = (
+            math.pi
+            * (chamber_radii[i] + chamber_radii[i - 1])
+            * ds
+        )
+        channel_length = ds / math.cos(theta)
+
+        pressure = coolant_pressures_return[i]
+        temperature_in = coolant_temp_return
+
+        cp = coolant_specific_heat(pressure, temperature_in)
+
+        hl_local = hl_RPE(
+            cp,
+            Coolant_Mdot,
+            coolant_rho(pressure, temperature_in),
+            coolant_abs_viscocity(pressure, temperature_in),
+            coolant_conductivity(pressure, temperature_in),
+            channel_count_return,
+            coolant_velocity[i],
+        )
+
+        m_fin = math.sqrt(
+            2 * hl_local
+            / (Channel_Conductivity * channel_ribs[i])
+        )
+        fin_argument = m_fin * Channel_Height
+        fin_efficiency = (
+            math.tanh(fin_argument) / fin_argument
+            if fin_argument > 1e-12
+            else 1.0
+        )
+
+        effective_wetted_perimeter = (
+            channel_widths[i]
+            + 2 * fin_efficiency * Channel_Height
+        )
+        coolant_area = (
+            effective_wetted_perimeter
+            * channel_count_return
+            * channel_length
+        )
+
+        R_l = 1.0 / (hl_local * coolant_area)
+        R_w = Channel_Wall / (
+            Channel_Conductivity * gas_area
+        )
+        Twg_guess = 0.5 * (
+            adiabatic_wall_temp[i] + temperature_in
+        )
+
+        for iteration in range(150):
+            hg_local = (
+                hg_bartz(
+                    throat_radius,
+                    gas_Cp,
+                    gas_viscocity,
+                    gas_prandtl,
+                    Chamber_Pressure_Pa,
+                    cstar_actual,
+                    area_ratios[i],
+                    throat_r_D * (2 * throat_radius),
+                )
+                * bartz_boundary_sigma(
+                    Twg_guess,
+                    chamber_temp,
+                    gamma,
+                    mach_number[i],
+                    0.6,
+                )
+                * bartz_coeff
+            )
+
+            R_g = 1.0 / (hg_local * gas_area)
+            R_base = R_g + R_w + R_l
+            R_modifier = R_base * (
+                1.0 / generic_modifer - 1.0
+            )
+
+            Q = (
+                adiabatic_wall_temp[i] - temperature_in
+            ) / (R_base + R_modifier)
+
+            Twg = (
+                adiabatic_wall_temp[i]
+                - Q * (R_g + R_modifier)
+            )
+
+            if abs(Twg - Twg_guess) < 0.01:
+                break
+
+            Twg_guess += 0.5 * (Twg - Twg_guess)
+        else:
+            raise RuntimeError(
+                f"Return-only wall-temperature calculation "
+                f"failed on segment {i} -> {i - 1}"
+            )
+
+        Twl = Twg - Q * R_w
+
+        # Follow the return flow: absorbed heat increases temperature.
+        coolant_temp_return = (
+            temperature_in + Q / (Coolant_Mdot * cp)
+        )
+
+        thermal_indices.append(i)
+        coolant_pressures[i] = pressure
+
+        hg.append(hg_local)
+        hl.append(hl_local)
+        Twg_list.append(Twg)
+        Twl_list.append(Twl)
+
+        # These rows represent only the return flow.
+        Tc_list.append(coolant_temp_return)
+        Tc_2_list.append(coolant_temp_return)
+
+        Q_list.append(Q)
+        q_heatflux.append(Q / gas_area)
+
+        coolant_specific_heat_list.append(
+            coolant_specific_heat(pressure, coolant_temp_return)
+        )
+        coolant_rho_list.append(
+            coolant_rho(pressure, coolant_temp_return)
+        )
+        coolant_abs_viscocity_list.append(
+            coolant_abs_viscocity(pressure, coolant_temp_return)
+        )
+        coolant_kin_viscocity_list.append(
+            coolant_kin_viscocity(pressure, coolant_temp_return)
+        )
+        coolant_conductivity_list.append(
+            coolant_conductivity(pressure, coolant_temp_return)
+        )
+
+        # Outside the return-only for loop, inside if Two_Pass.
+        coolant_outlet_temp = coolant_temp_return
+
+else:
+    coolant_outlet_temp = Tc_list[-1]
+
 
 Exit_Pressure=chamber_pressure[-1]
 Exit_Area=math.pi*chamber_radii[-1]**2
@@ -1251,7 +1423,6 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
         "Gas-Side Wall Temperature (K)",
         "Coolant-Side Wall Temperature (K)",
         "Coolant Temperature (K)",
-        "Coolant Velocity (m/s)",
         "",
         "Heat Transferred (W)",
         "Heat Flux (W/m^2)",
@@ -1274,7 +1445,6 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
     ])
 
     for k, i in sorted(enumerate(thermal_indices), key=lambda pair: pair[1]):
-            i = len(area_ratios) - 1 - k
 
             writer.writerow([
             x_positions[i],
@@ -1286,7 +1456,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             adiabatic_wall_temp[i],
             chamber_pressure[i],
             "",
-            coolant_velocity[k],
+            coolant_velocity[i],
             coolant_pressures[i],
             coolant_specific_heat_list[k],
             coolant_rho_list[k],
@@ -1301,7 +1471,6 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             Twg_list[k],
             Twl_list[k],
             Tc_list[k],
-            coolant_velocity[k],
             "",
             Q_list[k],
             q_heatflux[k],
@@ -1345,7 +1514,6 @@ print_range("Uncooled adiabatic wall temperature", uncooled_adiabatic_wall_temp,
 print_range("Gas temperature", gas_temp, "K")
 print_range("Gas velocity", gas_velocity, "m/s")
 print_range("Regen coolant temperature (all modeled passes)", Tc_list + Tc_2_list, "K")
-coolant_outlet_temp = max(Tc_list[-1],Tc_2_list[-1])   # single-pass flow order
 deltaT = coolant_outlet_temp - Coolant_Inlet_Temp
 print(f"Regen Coolant Delta T: {deltaT:.3f} K")
 print(f"Total heat absorbed: {sum(Q_list):.1f} W")
@@ -1357,6 +1525,19 @@ print('Coolant pressure drop', (Coolant_Inlet_Pressure_PA-coolant_pressures_retu
 print_range("Gas-side wall temperature", Twg_list, "K")
 print_range("Heat flux", q_heatflux, "W/m^2")
 print(f"Sum of segment heat-transfer values: {sum(Q_list):.6g} W")
+k_hot = max(range(len(Twg_list)), key=lambda k: Twg_list[k])
+i_hot = thermal_indices[k_hot]
+
+print("")
+
+print("Hottest segment:", i_hot - 1, "->", i_hot)
+print("Maximum wall temperature:", Twg_list[k_hot], "K")
+print(
+    "Cooling region:",
+    "return only"
+    if Two_Pass and i_hot <= pass_start_station
+    else "both passes" if Two_Pass else "single pass",
+)
 
 print("\nFilm cooling:", "Enabled" if Film_Cooling else "Disabled")
 if Film_Cooling:
