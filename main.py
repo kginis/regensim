@@ -22,52 +22,52 @@ Cstar_efficiency = 1.00
 
 # Chamber Inputs
 throat_r_D = 1.5
-chamber_diameter = 0.047 * 2  # m
-total_mdot = 2.25
+chamber_diameter = 0.0296 * 2  # m
+total_mdot = 1
 
 # CEA Inputs
-Mass_Ratio = 2.0
+Mass_Ratio = 1.9
 Expansion_Ratio = 4.5
 
 # Cooling Settings
-Two_Pass = True   
+Two_Pass = False   
 generatrix_angle = 0  # degrees
 Constant_Rib = False
 Variable_Width = True
-Film_Cooling = False
+Film_Cooling = True
 
 # Cooling Inputs
 Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000025
 Coolant_Mdot = total_mdot / (1 + Mass_Ratio) 
-Film_Mdot = Coolant_Mdot * 0.33            
-Film_Inlet_Temp = 383
+Film_Mdot = Coolant_Mdot * 0.2          
+Film_Inlet_Temp = 375
 Coolant_Inlet_Temp = 298.15
 Coolant_Inlet_Pressure_Bar = 45
 Channel_Conductivity = 160
 
 # Channel Inputs
-Channel_Width = 0.0012
+Channel_Width = 0.0010
 Channel_Height = 0.0014
-Constant_Rib_Len = 0.08
-Channel_Count = 48
+Channel_Count = 42
 Channel_Wall = 0.0008
-Channel_Rib = 0.0014
+Channel_Rib = 0.0010
 
 # Two Pass Channel Inputs
-Downsteam_Pass_Channels = 24
-Upstream_Pass_Channels = 24
+Downsteam_Pass_Channels = 18
+Upstream_Pass_Channels = 18
 pass_start_location=0.000 #measured from the top of the chamber downwards 
 
 # Variable Width Parameters
-Channel_Width_Injector = 0.0028
-Channel_Width_Throat = 0.0012
-Channel_Width_Manifold = 0.0024
+Channel_Width_Injector = 0.0015
+Channel_Width_Throat = 0.0010
+Constant_Rib_Len = 0.06
+Channel_Width_Manifold = 0.0015
 
 # Modifiers
 x_pdms = 0.0                 
-pdms_modifier = 1.0 # 1% = .85, 0% = 1.00, some R2S CDRs show people doing 0.75 for 1%
+pdms_modifier = 0.8 # 1% = .85, 0% = 1.00, some R2S CDRs show people doing 0.75 for 1%
 performance_modifier=1.0
 bartz_coeff=0.85 # 0.75 the value I got based off of making it match (conservativley) with two R2S datapoints: LURA & Bristol SEDS. Seems to be within a reasonable range ish for that and will be tuned better when I fire this thing!!
 #but i would like to use 0.85 just based off of vibes
@@ -1147,7 +1147,8 @@ for temp_iteration in range(temp_max_iterations):
 
         hg.append(hg_local)
         hl.append(hl_local)
-        hl_return.append(hl_local_return)
+        if Two_Pass:
+            hl_return.append(hl_local_return)
 
 
         coolant_specific_heat_list.append(coolant_specific_heat(coolant_pressures[i],coolant_temp))
@@ -1484,7 +1485,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             channel_ribs[i],
             channel_widths[i],
             hl[k],
-            hl_return[k],
+            *([hl_return[k] if k < len(hl_return) else ""] if Two_Pass else []),
             hg[k],
             Twg_list[k],
             Twl_list[k],

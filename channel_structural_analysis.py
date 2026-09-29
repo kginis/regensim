@@ -51,8 +51,8 @@ def iter_workbook_inputs(csv_path):
             a = float(row[18])                # channel width, m
             q = float(row[7]) - float(row[10])  # gas - coolant pressure, Pa
             q_thermal = float(row[27])        # heat flux, W/m²
-            Twg = float(row[22])              # K
-            Twl = float(row[23])              # K
+            Twg = float(row[21])              # K
+            Twl = float(row[22])              # K
             delta_t = Twg - Twl           # K
 
             yield (
@@ -72,7 +72,6 @@ output_filename = Path.cwd() / f"StructuralOutput_{identifier}.csv"
 
 for x, B, a, h, q, q_shutdown, q_thermal, a_thermal, Twg, Twl, delta_t in (
     iter_workbook_inputs("ThermalOutput_Lynx.csv")):
-    local_mech_stress_shutdown=(0.5*youngsmodulus*a*2)/(h**2)
     local_mech_stress_shutdown = -B * q_shutdown * (a / h)**2
 
     local_thermal_tan = (
