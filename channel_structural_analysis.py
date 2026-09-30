@@ -13,9 +13,9 @@ identifier = 'Lynx'
 
 #material properties
 alfa=2.00E-05	#1/K
-poissons=0.35 #poissons ratio	
+poissons=0.33 #poissons ratio	
 youngsmodulus=5.00E+10	#Pa
-Yield_S=6.00E+07  #Pa
+Yield_S=5.5e+7  #Pa
 k = 160.0 #W/M*K
 
 # =============================================================================

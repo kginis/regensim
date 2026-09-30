@@ -23,11 +23,11 @@ Cstar_efficiency = 1.00
 # Chamber Inputs
 throat_r_D = 1.5
 chamber_diameter = 0.0296 * 2  # m
-total_mdot = 1
+total_mdot = 1.3
 
 # CEA Inputs
-Mass_Ratio = 1.9
-Expansion_Ratio = 4.5
+Mass_Ratio = 2.0
+Expansion_Ratio = 3.5
 
 # Cooling Settings
 Two_Pass = False   
@@ -39,9 +39,9 @@ Film_Cooling = True
 # Cooling Inputs
 Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
-Surface_Roughness = 0.000025
+Surface_Roughness = 0.000035
 Coolant_Mdot = total_mdot / (1 + Mass_Ratio) 
-Film_Mdot = Coolant_Mdot * 0.2          
+Film_Mdot = Coolant_Mdot * 0.25     
 Film_Inlet_Temp = 375
 Coolant_Inlet_Temp = 298.15
 Coolant_Inlet_Pressure_Bar = 45
@@ -49,8 +49,8 @@ Channel_Conductivity = 160
 
 # Channel Inputs
 Channel_Width = 0.0010
-Channel_Height = 0.0014
-Channel_Count = 42
+Channel_Height = 0.0010
+Channel_Count = 46
 Channel_Wall = 0.0008
 Channel_Rib = 0.0010
 
@@ -60,14 +60,14 @@ Upstream_Pass_Channels = 18
 pass_start_location=0.000 #measured from the top of the chamber downwards 
 
 # Variable Width Parameters
-Channel_Width_Injector = 0.0015
+Channel_Width_Injector = 0.0024
 Channel_Width_Throat = 0.0010
-Constant_Rib_Len = 0.06
-Channel_Width_Manifold = 0.0015
+Constant_Rib_Len = 0.09
+Channel_Width_Manifold = 0.0014
 
 # Modifiers
 x_pdms = 0.0                 
-pdms_modifier = 0.8 # 1% = .85, 0% = 1.00, some R2S CDRs show people doing 0.75 for 1%
+pdms_modifier = 1.0 # 1% = .85, 0% = 1.00, some R2S CDRs show people doing 0.75 for 1%
 performance_modifier=1.0
 bartz_coeff=0.85 # 0.75 the value I got based off of making it match (conservativley) with two R2S datapoints: LURA & Bristol SEDS. Seems to be within a reasonable range ish for that and will be tuned better when I fire this thing!!
 #but i would like to use 0.85 just based off of vibes
@@ -347,7 +347,7 @@ def bartz_boundary_sigma(Tw, Tc, gamma, Mach, omega):
     return sigma
 
 def film_liquid_length(hg,v_gas,mach_no): #Huzel & Huang empirical method, how on earth did they come up with this 
-    delta=1.3 #Empircal value for film which is injected paralel to combustion gas
+    delta=0.5 #value for 20 degree impinging on chamber wall
     T_sat=coolant_sat_temp(Chamber_Pressure_Pa) #it's intresting to me that entry temp isnt added into this. also seem to be yielding shorter liquid length than RPA.
     T_re=chamber_temp*(1+(gas_prandtl**(1/3)*((gamma-1)/2)*mach_no**2))
     latent_heat = coolant_enthalpy_evap(Chamber_Pressure_Pa)
