@@ -1,0 +1,102 @@
+# =============================================================================
+# regensim inputs -- the ONLY file you need to edit.
+#   python main.py inputs.toml            single run (full CSV output)
+#   python main.py inputs.toml --batch    sweep everything in [sweep]
+# All lengths in metres, pressures as labelled.
+# =============================================================================
+identifier  = "Lynx"
+nozzle_file = "nozzle.csv"
+
+[performance]
+P_Ambient        = 101300
+Cstar_efficiency = 1.00
+
+[chamber]
+throat_r_D       = 1.5
+chamber_diameter = 0.0592     # m
+total_mdot       = 1.3        # kg/s
+Mass_Ratio       = 2.0        # O/F
+Expansion_Ratio  = 3.5
+
+[cooling_settings]
+Two_Pass         = false      # if true, Channel_Count = Downsteam + Upstream channels
+generatrix_angle = 0          # degrees
+Constant_Rib     = false
+Variable_Width   = true
+Film_Cooling     = true
+
+[cooling]
+Regen_Coolant              = "Ethanol"
+Film_Coolant               = "Ethanol"
+Surface_Roughness          = 0.000035
+Film_Fraction              = 0.25     # film mdot as a fraction of fuel (regen) mdot
+Film_Inlet_Temp            = 375
+Coolant_Inlet_Temp         = 298.15
+Coolant_Inlet_Pressure_Bar = 45
+Channel_Conductivity       = 160
+
+[channels]
+# Any width may be set to "max" = widest channel that leaves a rib of
+# [constraints] min_rib at that location (throat / injector / manifold).
+Channel_Width  = 0.0010
+Channel_Height = 0.0010
+Channel_Count  = 46
+Channel_Wall   = 0.0008
+Channel_Rib    = 0.0010
+
+[two_pass]
+Downsteam_Pass_Channels = 18
+Upstream_Pass_Channels  = 18
+pass_start_location     = 0.000   # from the top of the chamber downwards
+
+[variable_width]
+Channel_Width_Injector = 0.0024
+Channel_Width_Throat   = 0.0010
+Constant_Rib_Len       = 0.09
+Channel_Width_Manifold = 0.0014
+
+[modifiers]
+x_pdms             = 0.0
+pdms_modifier      = 1.0     # 1% = .85, 0% = 1.00
+performance_modifier = 1.0
+bartz_coeff        = 0.85
+
+[material]
+alfa          = 2.0e-5       # 1/K
+poissons      = 0.33
+youngsmodulus = 5.0e10       # Pa
+Yield_S       = 5.5e7        # Pa
+shutdown_B    = 0.5
+
+# =============================================================================
+# Batch / optimisation (only used with --batch)
+# =============================================================================
+[constraints]
+min_margin = 1.0        # structural margin of safety must be >= this
+min_rib    = 0.0012     # m, no rib anywhere may be thinner than this
+min_wall   = 0.0008     # m, channel wall (hot-gas to coolant) may not be thinner than this
+# max_dP_bar = 15       # optional extras
+max_Twg_K  = 630     # K, gas-side wall temperature limit
+# no_boiling = true     # reject if bulk coolant exceeds saturation temperature
+
+[batch]
+workers               = 0          # 0 = all CPU cores
+performance_metric    = "thrust_N" # what "highest performance" means
+size_metric           = "min_channel_area_m2"   # or mean_channel_area_m2
+performance_tolerance = 0.0        # 0.01 = accept anything within 1% of best thrust, then pick largest channel
+early_exit            = true       # stop a run as soon as margin < min_margin
+save_all              = false      # true: write every run (huge for big sweeps)
+mode                  = "grid"     # "grid" = full product, "random" = sample
+samples               = 100000     # used when mode = "random"
+seed                  = 1
+
+# Each entry is a list, or {start, stop, num} (inclusive) or {start, stop, step}.
+[sweep]
+Mass_Ratio     = { start = 1.6, stop = 2.6, num = 11 }
+Film_Fraction  = [0.15, 0.20, 0.25, 0.30]
+Channel_Count  = { start = 30, stop = 60, step = 2 }
+Channel_Height = { start = 0.0008, stop = 0.0030, num = 12 }
+Channel_Wall   = [0.0008, 0.0009, 0.0010]
+Channel_Width_Throat   = "max"
+Channel_Width_Injector = "max"
+Channel_Width_Manifold = "max"
