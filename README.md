@@ -10,3 +10,6 @@ Headless 1d thermal model for analysis of regenerative engines, designed for Nit
 - Film cooling analysis, but no real-world correlation for it, so it should not be trusted without skepticism
 - Two-pass cooling :D
 
+### Todo:
+- Multiple different film cooling analysis methods (SP 8124 appendix A may be worth the time, see "Film Cooling Experiment v Analytical" C. Kirchberger, G. Schlieben, and O. J. Haidn paper
+- Multiple different hg prediction methods. 
