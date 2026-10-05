@@ -69,7 +69,7 @@ Channel_Width_Manifold = 0.0014
 x_pdms = 0.0                 
 pdms_modifier = 1.0 # 1% = .85, 0% = 1.00, some R2S CDRs show people doing 0.75 for 1%
 performance_modifier=1.0
-bartz_coeff=0.95 # 0.75 the value I got based off of making it match (conservativley) with two R2S datapoints: LURA & Bristol SEDS. Seems to be within a reasonable range ish for that and will be tuned better when I fire this thing!!
+bartz_coeff=1.0 # 0.75 the value I got based off of making it match (conservativley) with two R2S datapoints: LURA & Bristol SEDS. Seems to be within a reasonable range ish for that and will be tuned better when I fire this thing!!
 #but i would like to use 0.85 just based off of vibes
 
 # =============================================================================
