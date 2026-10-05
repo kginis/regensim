@@ -69,7 +69,7 @@ Channel_Width_Manifold = 0.0014
 x_pdms = 0.0                 
 pdms_modifier = 1.0 # 1% = .85, 0% = 1.00, some R2S CDRs show people doing 0.75 for 1%
 performance_modifier=1.0
-bartz_coeff=0.85 # 0.75 the value I got based off of making it match (conservativley) with two R2S datapoints: LURA & Bristol SEDS. Seems to be within a reasonable range ish for that and will be tuned better when I fire this thing!!
+bartz_coeff=0.95 # 0.75 the value I got based off of making it match (conservativley) with two R2S datapoints: LURA & Bristol SEDS. Seems to be within a reasonable range ish for that and will be tuned better when I fire this thing!!
 #but i would like to use 0.85 just based off of vibes
 
 # =============================================================================
@@ -483,21 +483,18 @@ def film_Taw_effective(station,nu, T_co_1):
     T_ref = 298.15  # Use the reference temperature specified by the source.
     Cp_i=film_coolant_cp(chamber_pressure[station])
 
+    # All enthalpies are sensible, referenced to T_ref. gas_enthalpy (CEA get_Chamber_H)
+    # is an absolute (heat-of-formation) enthalpy and must not be mixed in here.
+    hg_1 = gas_Cp * (chamber_temp - T_ref)
     hg_i= gas_Cp * (gas_temp[station] - T_ref)
     hco_i = Cp_i * (T_co_i - T_ref)
 
     eta = nu_i(station, nu)
     cp_mix = eta * Cp_i + (1 - eta) * gas_Cp
+    dH = hg_1 - hco_i
 
-    Taw_eff=(
-        ((hg_i-nu_i(station,nu)*(gas_enthalpy-hco_i))-(1-gas_prandtl**(1/3))*(gas_enthalpy-hco_i))
-        / (nu_i(station, nu) * Cp_i+ (1 - nu_i(station, nu)) * gas_Cp)
-    )
-    n = nu_i(station, nu)
-    r = gas_prandtl**(1 / 3)
+    Taw_eff = T_ref + (hg_1 - eta*dH - (1 - gas_prandtl**(1/3))*dH) / cp_mix
 
-    numerator = hco_i + (r - n) * (gas_enthalpy - hco_i)
-    denominator = n * Cp_i
     # These are the quantities actually used by the current model.
     # Cp_i currently comes from the saturated-liquid Cp helper.
     film_station_data[station].update({

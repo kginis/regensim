@@ -51,8 +51,8 @@ def iter_workbook_inputs(csv_path):
             a = float(row[18])                # channel width, m
             q = float(row[7]) - float(row[10])  # gas - coolant pressure, Pa
             q_thermal = float(row[27])        # heat flux, W/m²
-            Twg = float(row[21])              # K
-            Twl = float(row[22])              # K
+            Twg = float(row[22])              # K
+            Twl = float(row[23])              # K
             delta_t = Twg - Twl           # K
 
             yield (
