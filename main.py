@@ -44,12 +44,12 @@ Coolant_Mdot = total_mdot / (1 + Mass_Ratio)
 Film_Mdot = Coolant_Mdot * 0.196
 Film_Inlet_Temp = 375
 Coolant_Inlet_Temp = 298.15
-Coolant_Inlet_Pressure_Bar = 45
+Coolant_Inlet_Pressure_Bar = 38
 Channel_Conductivity = 160
 
 # Channel Inputs
 Channel_Width = 0.0010
-Channel_Height = 0.0010
+Channel_Height = 0.0014
 Channel_Count = 46
 Channel_Wall = 0.0008
 Channel_Rib = 0.0010
@@ -63,7 +63,7 @@ pass_start_location=0.000 #measured from the top of the chamber downwards
 Channel_Width_Injector = 0.0024
 Channel_Width_Throat = 0.0010
 Constant_Rib_Len = 0.09
-Channel_Width_Manifold = 0.0014
+Channel_Width_Manifold = 0.002
 
 # Modifiers
 x_pdms = 0.0                 
