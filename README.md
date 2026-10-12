@@ -9,6 +9,7 @@ Headless 1d thermal model for analysis of regenerative engines, designed for Nit
 - Calculates temperature in the chamber, on the chamber wall, on the coolant wall, and in the coolant channels, and coolant velocity
 - Film cooling analysis, but no real-world correlation for it, so it should not be trusted without skepticism
 - Two-pass cooling :D
+- batch running for optimization of an engine w/ optimized code made by claude (need to seperate from rest of my code)
 
 ### Todo:
 - Multiple different film cooling analysis methods (SP 8124 appendix A may be worth the time, see "Film Cooling Experiment v Analytical" C. Kirchberger, G. Schlieben, and O. J. Haidn paper
