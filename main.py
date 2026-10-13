@@ -63,7 +63,7 @@ pass_start_location=0.000 #measured from the top of the chamber downwards
 Channel_Width_Injector = 0.0024
 Channel_Width_Throat = 0.0010
 Constant_Rib_Len = 0.09
-Channel_Width_Manifold = 0.002
+Channel_Width_Manifold = 0.0018
 
 # Modifiers
 x_pdms = 0.0                 
