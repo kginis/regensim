@@ -23,10 +23,10 @@ Cstar_efficiency = 1.00
 # Chamber Inputs
 throat_r_D = 1.5
 chamber_diameter = 0.0296 * 2  # m
-total_mdot = 1.394
+total_mdot = 1.65
 
 # CEA Inputs
-Mass_Ratio = 1.908
+Mass_Ratio = 2.5
 Expansion_Ratio = 3.5
 
 # Cooling Settings
@@ -34,14 +34,15 @@ Two_Pass = False
 generatrix_angle = 0  # degrees
 Constant_Rib = False
 Variable_Width = True
-Film_Cooling = True
+Film_Cooling = False
+TBC = True
 
 # Cooling Inputs
 Regen_Coolant = FluidsList.Ethanol
 Film_Coolant = FluidsList.Ethanol
 Surface_Roughness = 0.000035
 Coolant_Mdot = total_mdot / (1 + Mass_Ratio) 
-Film_Mdot = Coolant_Mdot * 0.196
+Film_Mdot = Coolant_Mdot * 0.299
 Film_Inlet_Temp = 375
 Coolant_Inlet_Temp = 298.15
 Coolant_Inlet_Pressure_Bar = 38
@@ -53,6 +54,10 @@ Channel_Height = 0.0014
 Channel_Count = 46
 Channel_Wall = 0.0008
 Channel_Rib = 0.0010
+
+# TBC Settings
+TBC_Thickness = 0.0000254     # m  (0.001 in / 1 mil, typical Cerakote film build)
+TBC_Conductivity = 0.08       # W/m-K  (Cerakote Glacier Black C-7600 datasheet)
 
 # Two Pass Channel Inputs
 Downsteam_Pass_Channels = 18
@@ -87,6 +92,9 @@ if not Downsteam_Pass_Channels+Upstream_Pass_Channels==Channel_Count and Two_Pas
             "total channel count must be consistent"
     )
 
+
+# Thin-coating conduction resistance per unit area (m^2-K/W); 0 when TBC is off
+TBC_R_per_area = TBC_Thickness / TBC_Conductivity if TBC else 0.0
 
 Chamber_Pressure_bar = 35 #this is the initial guess, mdot calculated fr later
 
@@ -146,7 +154,7 @@ def find_throat(list):
             if minimum == None or value<minimum:
                 minimum=value
     return minimum
-
+    
 with open('nozzle.csv', 'r') as nozzle:
 
     csv_reader = csv.reader(nozzle)
@@ -866,6 +874,7 @@ hl=[]
 hl_return=[]
 hg=[]
 Twg_list=[]
+Ttbc_list=[]
 Twl_list=[]
 Tc_list=[]
 Tc_2_list=[]
@@ -909,6 +918,7 @@ for temp_iteration in range(temp_max_iterations):
     hg.clear()
     hl.clear()
     Twg_list.clear()
+    Ttbc_list.clear()
     Twl_list.clear()
     Tc_list.clear()
     Tc_2_list.clear()
@@ -1085,35 +1095,39 @@ for temp_iteration in range(temp_max_iterations):
             ) / conductance_total
 
             R_g = 1.0 / (hg_local * gas_area)
+            R_tbc = TBC_R_per_area / gas_area
             R_w = Channel_Wall / (
                 Channel_Conductivity * wall_area
             )
 
-            R_base = R_g + R_w + R_l
+            R_base = R_g + R_tbc + R_w + R_l
             R_pdms_effective = R_base * (1.0 / generic_modifer - 1.0)
 
             Q = (adiabatic_wall_temp[i] - coolant_temp_effective) / (
                 R_base + R_pdms_effective
             )
 
-            Twg_calculated = adiabatic_wall_temp[i] - Q * (
+            # Gas-facing surface temperature (TBC surface if coated, else metal)
+            T_surface_calculated = adiabatic_wall_temp[i] - Q * (
                 R_g + R_pdms_effective
             )
 
-            dev = abs(Twg_calculated - Twg_guess)
+            dev = abs(T_surface_calculated - Twg_guess)
 
             if dev < tolerance:
-                Twg = Twg_calculated
                 break
 
             Twg_guess += relaxation * (
-                Twg_calculated - Twg_guess
+                T_surface_calculated - Twg_guess
             )
         else:
             raise RuntimeError(
                 f"Wall-temperature iteration failed at index {i}"
             )
 
+        T_surface = T_surface_calculated
+        Twg_calculated = T_surface - Q * R_tbc  # metal gas-side wall temperature
+        Twg = Twg_calculated
         Twl = Twg - Q * R_w
 
         Q_pass_1 = hl_local * coolant_area * (Twl - coolant_temp)
@@ -1155,6 +1169,7 @@ for temp_iteration in range(temp_max_iterations):
         coolant_conductivity_list.append(coolant_conductivity(coolant_pressures[i],coolant_temp))
 
         Twg_list.append(Twg_calculated)
+        Ttbc_list.append(T_surface)
         Twl_list.append(Twl)
         Tc_list.append(coolant_temp)
         Tc_2_list.append(coolant_temp_return)
@@ -1256,6 +1271,7 @@ if Two_Pass:
         R_w = Channel_Wall / (
             Channel_Conductivity * gas_area
         )
+        R_tbc = TBC_R_per_area / gas_area
         Twg_guess = 0.5 * (
             adiabatic_wall_temp[i] + temperature_in
         )
@@ -1283,7 +1299,7 @@ if Two_Pass:
             )
 
             R_g = 1.0 / (hg_local * gas_area)
-            R_base = R_g + R_w + R_l
+            R_base = R_g + R_tbc + R_w + R_l
             R_modifier = R_base * (
                 1.0 / generic_modifer - 1.0
             )
@@ -1292,21 +1308,23 @@ if Two_Pass:
                 adiabatic_wall_temp[i] - temperature_in
             ) / (R_base + R_modifier)
 
-            Twg = (
+            # Gas-facing surface temperature (TBC surface if coated, else metal)
+            T_surface = (
                 adiabatic_wall_temp[i]
                 - Q * (R_g + R_modifier)
             )
 
-            if abs(Twg - Twg_guess) < 0.01:
+            if abs(T_surface - Twg_guess) < 0.01:
                 break
 
-            Twg_guess += 0.5 * (Twg - Twg_guess)
+            Twg_guess += 0.5 * (T_surface - Twg_guess)
         else:
             raise RuntimeError(
                 f"Return-only wall-temperature calculation "
                 f"failed on segment {i} -> {i - 1}"
             )
 
+        Twg = T_surface - Q * R_tbc  # metal gas-side wall temperature
         Twl = Twg - Q * R_w
 
         # Follow the return flow: absorbed heat increases temperature.
@@ -1320,6 +1338,7 @@ if Two_Pass:
         hg.append(hg_local)
         hl.append(hl_local)
         Twg_list.append(Twg)
+        Ttbc_list.append(T_surface)
         Twl_list.append(Twl)
 
         # These rows represent only the return flow.
@@ -1437,6 +1456,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
         "Coolant-Side Heat Transfer Coefficient (W/m^2-K)",
         "Coolant-Side Heat Transfer Coefficient, Pass 2 (W/m^2-K)",
         "Gas-Side Heat Transfer Coefficient (W/m^2-K)",
+        "TBC Surface Temperature (K)",
         "Gas-Side Wall Temperature (K)",
         "Coolant-Side Wall Temperature (K)",
         "Coolant Temperature (K)",
@@ -1487,6 +1507,7 @@ with savefilename.open("w", newline="", encoding="utf-8") as csvfile:
             hl[k],
             hl_return[k] if Two_Pass and k < len(hl_return) else "",
             hg[k],
+            Ttbc_list[k] if TBC else "",
             Twg_list[k],
             Twl_list[k],
             Tc_list[k],
@@ -1543,6 +1564,8 @@ print_range(f"Regen coolant channel ribs", channel_ribs, "m")
 print_range("Coolant-side wall temperature", Twl_list, "K")
 print('Coolant pressure drop', (Coolant_Inlet_Pressure_PA-coolant_pressures_return[0])/100000, 'Bar')
 print_range("Gas-side wall temperature", Twg_list, "K")
+if TBC:
+    print_range("TBC surface temperature", Ttbc_list, "K")
 print_range("Heat flux", q_heatflux, "W/m^2")
 print(f"Sum of segment heat-transfer values: {sum(Q_list):.6g} W")
 k_hot = max(range(len(Twg_list)), key=lambda k: Twg_list[k])
@@ -1558,6 +1581,12 @@ print(
     if Two_Pass and i_hot <= pass_start_station
     else "both passes" if Two_Pass else "single pass",
 )
+
+print("\nTBC:", "Enabled" if TBC else "Disabled")
+if TBC:
+    print(f"TBC thickness: {TBC_Thickness*1e6:.3g} um, conductivity: {TBC_Conductivity:.3g} W/m-K")
+    print(f"TBC resistance per area: {TBC_R_per_area:.4g} m^2-K/W")
+    print_range("TBC temperature drop", [a - b for a, b in zip(Ttbc_list, Twg_list)], "K")
 
 print("\nFilm cooling:", "Enabled" if Film_Cooling else "Disabled")
 if Film_Cooling:
